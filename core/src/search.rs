@@ -220,7 +220,10 @@ fn try_depth(
     restart: usize,
 ) -> bool {
     if depth == order.len() {
-        return true;
+        // Son doğrulama orijinal geometri üzerinde bağımsız yapılır (plan §12);
+        // geçersiz aday COMPLETE olamaz, arama adaylarıyla devam eder.
+        let placements = collect_placements(order, state, products);
+        return crate::validation::validate_result(products, &placements).valid;
     }
     let item = order[depth];
     let mut candidates = generate_candidates(session, item, &products[item], config, budget, rng);
@@ -257,8 +260,11 @@ fn try_depth(
             ) {
                 return true;
             }
-            // Alt ürün yerleşemedi: en derin durumu kaydet, bu pozu geri al.
-            if placed_count(state) > placed_count(&best.state) {
+            // Alt ürün yerleşemedi: en derin DOĞRULANMIŞ durumu kaydet, pozu geri al.
+            let partial = collect_placements(order, state, products);
+            if crate::validation::validate_result(products, &partial).valid
+                && placed_count(state) > placed_count(&best.state)
+            {
                 best.state.clone_from_slice(state);
                 best.candidates_tried = budget.total;
                 best.restarts = restart;
