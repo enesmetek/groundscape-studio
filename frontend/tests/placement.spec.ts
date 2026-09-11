@@ -4,6 +4,15 @@ import { expect, test } from '@playwright/test'
 
 test('üç ürün yüklenir, yerleştirilir ve SVG ile çizilir', async ({ page }) => {
   test.setTimeout(180_000)
+  await page.addInitScript(() => {
+    const originalPostMessage = Worker.prototype.postMessage
+    const state = window as typeof window & { __placeMessages: number }
+    state.__placeMessages = 0
+    Worker.prototype.postMessage = function (message: unknown) {
+      if ((message as { type?: string })?.type === 'PLACE') state.__placeMessages += 1
+      return originalPostMessage.call(this, message)
+    }
+  })
   await page.goto('/')
 
   // loading → ready: üç ürünün durum bilgisi görülür
@@ -26,6 +35,8 @@ test('üç ürün yüklenir, yerleştirilir ve SVG ile çizilir', async ({ page 
   // Tekrar deneme bozuk durum bırakmaz: düğme yeniden aktif
   await expect(page.getByRole('button', { name: 'Yerleştir' })).toBeEnabled()
   await page.getByRole('button', { name: 'Yerleştir' }).click()
-  await expect(page.getByText(/Yerleştiriliyor/)).toBeVisible()
+  await page.waitForFunction(
+    () => (window as typeof window & { __placeMessages: number }).__placeMessages === 2,
+  )
   await expect(page.getByText('Yerleştirme tamamlandı: 3/3 ürün.')).toBeVisible({ timeout: 60_000 })
 })
