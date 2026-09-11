@@ -96,10 +96,15 @@ pub fn search_placement(
 
     let order = order_by_safety_area(products);
     let n = products.len();
-    let largest_footprint = products
+    // İkinci en büyük footprint: benzer boyutlu setlerde eşitlik sahte
+    // ana ürün seçmez (MVP-2 plan P2 — benzersiz maksimum anchor'dır).
+    let mut areas: Vec<f64> = products
         .iter()
         .map(|p| p.footprint_area_mm2.abs())
-        .fold(0.0_f64, f64::max);
+        .collect();
+    areas.sort_by(f64::total_cmp);
+    areas.pop();
+    let second_largest_footprint = areas.pop().unwrap_or(0.0);
     // En derin ilerleyen durum saklanır: kısmi sonuç bundan raporlanır.
     // Eşit derinlikte düşük toplam skor ikincil anahtardır (MVP-2 plan P4).
     let mut best = BestProgress {
@@ -126,7 +131,7 @@ pub fn search_placement(
             &mut state,
             &snapshot,
             products,
-            largest_footprint,
+            second_largest_footprint,
             objective,
             config,
             &mut budget,
@@ -186,7 +191,7 @@ fn placed_count(state: &[Option<Pose>]) -> usize {
 fn placed_scored_items(
     state: &[Option<Pose>],
     products: &[ProductGeometry],
-    largest_footprint: f64,
+    second_largest_footprint: f64,
 ) -> Vec<ScoredItem> {
     state
         .iter()
@@ -199,7 +204,7 @@ fn placed_scored_items(
                     product.footprint_centroid_local,
                     product.footprint_area_mm2,
                     product.placement_role,
-                    largest_footprint,
+                    second_largest_footprint,
                 )
             })
         })
@@ -257,7 +262,7 @@ fn try_depth(
     state: &mut [Option<Pose>],
     snapshot_before_depth: &[Option<Pose>],
     products: &[ProductGeometry],
-    largest_footprint: f64,
+    second_largest_footprint: f64,
     objective: &LayoutObjective,
     config: &SearchConfig,
     budget: &mut Budget,
@@ -275,7 +280,7 @@ fn try_depth(
         session,
         item,
         &products[item],
-        largest_footprint,
+        second_largest_footprint,
         objective,
         config,
         budget,
@@ -284,7 +289,7 @@ fn try_depth(
 
     // Skor sıralaması (MVP-2 plan P4): bottom-left tie-break kaldırıldı.
     // Düşük skor önce; `placed`, state + products'tan bu derinlikte türetilir.
-    let placed = placed_scored_items(state, products, largest_footprint);
+    let placed = placed_scored_items(state, products, second_largest_footprint);
     let candidate_item = |pose: &Pose| {
         let product = &products[item];
         ScoredItem::new(
@@ -292,7 +297,7 @@ fn try_depth(
             product.footprint_centroid_local,
             product.footprint_area_mm2,
             product.placement_role,
-            largest_footprint,
+            second_largest_footprint,
         )
     };
     candidates.sort_by(|a, b| {
@@ -319,7 +324,7 @@ fn try_depth(
                 state,
                 &child_snapshot,
                 products,
-                largest_footprint,
+                second_largest_footprint,
                 objective,
                 config,
                 budget,
@@ -331,7 +336,7 @@ fn try_depth(
             // Alt ürün yerleşemedi: en derin DOĞRULANMIŞ durumu kaydet, pozu geri al.
             let partial = collect_placements(order, state, products);
             let partial_score = score_layout(
-                &placed_scored_items(state, products, largest_footprint),
+                &placed_scored_items(state, products, second_largest_footprint),
                 objective,
             );
             if crate::validation::validate_result(products, &partial).valid
@@ -366,7 +371,7 @@ fn generate_candidates(
     session: &mut PlacementSession,
     item: usize,
     product: &ProductGeometry,
-    largest_footprint: f64,
+    second_largest_footprint: f64,
     objective: &LayoutObjective,
     config: &SearchConfig,
     budget: &mut Budget,
@@ -378,7 +383,7 @@ fn generate_candidates(
     let role = effective_role(
         product.placement_role,
         product.footprint_area_mm2.abs(),
-        largest_footprint,
+        second_largest_footprint,
     );
 
     // Genel havuz: bölgesel örneklem + çeşitlilik koşulu.
@@ -513,10 +518,11 @@ fn perturb_around(
     }
 }
 
-/// Pertürbasyon ölçeği: kalan yerel örnek sayısı azaldıkça küçülür.
-/// Eski `1/√local_left` formu ters çalışıyordu (MVP-2 plan P3).
+/// Pertürbasyon ölçeği: kalan yerel örnek sayısı azaldıkça küçülür; sıfıra
+/// inmez (boş aralık örneklemesi paniklemez). Eski `1/√local_left` formu
+/// ters çalışıyordu (MVP-2 plan P3).
 fn perturb_scale(local_left: usize, local_total: usize) -> f64 {
-    (local_left as f64 / local_total.max(1) as f64).sqrt()
+    (local_left.max(1) as f64 / local_total.max(1) as f64).sqrt()
 }
 
 /// Bir açı için döndürülmüş safety poligonunun sınırlarından geçerli çeviri

@@ -74,19 +74,25 @@ pub struct ScoredItem {
 impl ScoredItem {
     /// Ürün pozundan skorlanmış öğe üretir. `auto` rolde ürün, ürün setindeki
     /// en büyük footprint'e sahipse anchor gibi puanlanır (plan P2); açıkça
-    /// verilen rolde geometri çıkarımı yapılmaz.
+    /// verilen rolde geometri çıkarımı yapılmaz. `second_largest_footprint_area_mm2`
+    /// ürün setindeki ikinci en büyük footprint alanıdır (tek ürün setinde 0):
+    /// benzer boyutlu setlerde (eşitlik) sahte ana ürün seçilmez.
     #[must_use]
     pub fn new(
         pose: Pose,
         footprint_centroid_local: [f64; 2],
         footprint_area_mm2: f64,
         role: PlacementRole,
-        largest_footprint_area_mm2: f64,
+        second_largest_footprint_area_mm2: f64,
     ) -> Self {
         Self {
             center: world_footprint_center(pose, footprint_centroid_local),
             area: footprint_area_mm2.abs(),
-            role: effective_role(role, footprint_area_mm2.abs(), largest_footprint_area_mm2),
+            role: effective_role(
+                role,
+                footprint_area_mm2.abs(),
+                second_largest_footprint_area_mm2,
+            ),
         }
     }
 }
@@ -102,11 +108,12 @@ pub fn world_footprint_center(pose: Pose, centroid_local: [f64; 2]) -> [f64; 2] 
     ]
 }
 
-/// Etkin rol: `auto` yalnızca ürün setindeki en büyük footprint alanına
-/// sahipse anchor sayılır (eşitlik dahil).
+/// Etkin rol: `auto` yalnızca ürün setinin diğer tüm ürünlerinden katı olarak
+/// büyük footprint alanına sahipse anchor sayılır (benzersiz maksimum —
+/// benzer boyutlu setlerde sahte ana ürün seçilmez).
 #[must_use]
-pub fn effective_role(role: PlacementRole, area: f64, largest_area: f64) -> PlacementRole {
-    if role == PlacementRole::Auto && area >= largest_area {
+pub fn effective_role(role: PlacementRole, area: f64, second_largest_area: f64) -> PlacementRole {
+    if role == PlacementRole::Auto && area > second_largest_area {
         PlacementRole::Anchor
     } else {
         role

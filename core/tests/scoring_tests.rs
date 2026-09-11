@@ -137,17 +137,19 @@ fn spacing_penalizes_closeness_not_distance() {
 }
 
 #[test]
-fn auto_role_treated_as_anchor_only_when_largest() {
-    let largest = 900.0;
+fn auto_role_treated_as_anchor_only_when_uniquely_largest() {
+    // Benzersiz en büyük → anchor; benzer boyut (eşitlik) sahte ana ürün
+    // seçmez (plan P2). Açık rol geometri çıkarımı yapmaz (plan §2.2).
     let big = Pose::new(4800.0, 4800.0, 0.0);
-    let small = Pose::new(4800.0, 4800.0, 0.0);
-    let big_item = ScoredItem::new(big, [0.0, 0.0], largest, PlacementRole::Auto, largest);
-    let small_item = ScoredItem::new(small, [0.0, 0.0], 100.0, PlacementRole::Auto, largest);
+    let big_item = ScoredItem::new(big, [0.0, 0.0], 900.0, PlacementRole::Auto, 400.0);
+    let tied_item = ScoredItem::new(big, [0.0, 0.0], 900.0, PlacementRole::Auto, 900.0);
+    let small_item = ScoredItem::new(big, [0.0, 0.0], 100.0, PlacementRole::Auto, 900.0);
     assert_eq!(big_item.role, PlacementRole::Anchor);
+    assert_eq!(tied_item.role, PlacementRole::Auto);
     assert_eq!(small_item.role, PlacementRole::Auto);
 
     // Açık rol geometri çıkarımı yapmaz (plan §2.2).
-    let explicit = ScoredItem::new(big, [0.0, 0.0], largest, PlacementRole::Peripheral, largest);
+    let explicit = ScoredItem::new(big, [0.0, 0.0], 900.0, PlacementRole::Peripheral, 0.0);
     assert_eq!(explicit.role, PlacementRole::Peripheral);
 }
 
