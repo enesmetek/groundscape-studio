@@ -131,6 +131,19 @@ pub fn score_layout(placed: &[ScoredItem], objective: &LayoutObjective) -> f64 {
         + w.orientation * e_orientation(placed)
 }
 
+/// Bileşen dökümü: (anchor, balance, distribution, spacing, orientation).
+/// Ölçüm raporlaması içindir (MVP-2 plan P5).
+#[must_use]
+pub fn score_components(placed: &[ScoredItem], objective: &LayoutObjective) -> [f64; 5] {
+    [
+        e_anchor(placed, objective),
+        e_balance(placed),
+        e_distribution(placed, objective),
+        e_spacing(placed, objective),
+        e_orientation(placed),
+    ]
+}
+
 /// Adayın yerleşime katkısı: tam yerleşim skoru farkı (plan P4 sıralaması
 /// bunu kullanır).
 #[must_use]
