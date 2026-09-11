@@ -4,7 +4,10 @@ use groundscape_core::{
 };
 
 fn polygon(vertices: &[[f32; 2]]) -> Polygon {
-    vertices.to_vec()
+    vertices
+        .iter()
+        .map(|&[x, y]| [f64::from(x), f64::from(y)])
+        .collect()
 }
 
 #[test]
@@ -69,7 +72,7 @@ fn arbitrary_thirty_seven_degree_pose_is_accepted() {
     ));
     assert!(jagua_pose_fits_fixed_area(
         &part,
-        Pose::new(400.0, 400.0, 37.0)
+        Pose::new(400.0, 400.0, 37.0_f64.to_radians())
     ));
     assert!(run_spike().unwrap().continuous_rotation_enabled);
 }

@@ -1,4 +1,7 @@
+mod area;
+mod geometry;
 mod jagua_adapter;
+mod model;
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod wasm_api;
@@ -8,29 +11,14 @@ use std::io::Cursor;
 use dxf::{Drawing, entities::EntityType, enums::Units};
 use serde::Serialize;
 
-pub const AREA_SIZE: f32 = 5000.0;
+pub use area::{AREA_MM2, AREA_SIZE_MM, point_in_area};
+pub use geometry::{
+    AREA_EPSILON_MM2, LINEAR_EPSILON_MM, Polygon, bbox, canonicalize, shoelace_area,
+    transformed_bbox, translated,
+};
+pub use model::{Placement, Pose, ProductGeometry};
 
 pub const TINY_DXF: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n100\nAcDbEntity\n8\n0\n100\nAcDbPolyline\n90\n4\n70\n1\n10\n0\n20\n0\n10\n100\n20\n0\n10\n100\n20\n100\n10\n0\n20\n100\n0\nENDSEC\n0\nEOF\n";
-
-pub type Polygon = Vec<[f32; 2]>;
-
-#[derive(Clone, Copy, Debug)]
-pub struct Pose {
-    pub x: f32,
-    pub y: f32,
-    pub angle_degrees: f32,
-}
-
-impl Pose {
-    #[must_use]
-    pub fn new(x: f32, y: f32, angle_degrees: f32) -> Self {
-        Self {
-            x,
-            y,
-            angle_degrees,
-        }
-    }
-}
 
 #[derive(Debug, Serialize)]
 pub struct DxfProof {
@@ -60,8 +48,7 @@ pub fn safety_polygons_overlap(left: &Polygon, right: &Polygon) -> bool {
 
 #[must_use]
 pub fn jagua_pose_fits_fixed_area(polygon: &Polygon, pose: Pose) -> bool {
-    jagua_adapter::placement_proof(polygon, pose.angle_degrees.to_radians(), (pose.x, pose.y))
-        .feasible
+    jagua_adapter::placement_proof(polygon, pose.rotation_rad, (pose.x_mm, pose.y_mm)).feasible
 }
 
 pub fn parse_dxf_proof(bytes: &[u8]) -> Result<DxfProof, dxf::DxfError> {
@@ -86,12 +73,12 @@ pub fn run_spike() -> Result<SpikeResult, dxf::DxfError> {
     let part: Polygon = vec![[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]];
     let exact: Polygon = vec![
         [0.0, 0.0],
-        [AREA_SIZE, 0.0],
-        [AREA_SIZE, AREA_SIZE],
-        [0.0, AREA_SIZE],
+        [AREA_SIZE_MM, 0.0],
+        [AREA_SIZE_MM, AREA_SIZE_MM],
+        [0.0, AREA_SIZE_MM],
     ];
     let layout = jagua_adapter::layout_proof(&outer, &inner);
-    let rotated = jagua_adapter::placement_proof(&part, 37.0_f32.to_radians(), (1000.0, 1000.0));
+    let rotated = jagua_adapter::placement_proof(&part, 37.0_f64.to_radians(), (1000.0, 1000.0));
 
     Ok(SpikeResult {
         engine: "jagua-rs 0.8.1 BPP collision query",
@@ -100,7 +87,7 @@ pub fn run_spike() -> Result<SpikeResult, dxf::DxfError> {
         continuous_rotation_enabled: rotated.continuous_rotation,
         angle_37_accepted: rotated.feasible,
         exact_fit_accepted: jagua_pose_fits_fixed_area(&exact, Pose::new(0.0, 0.0, 0.0)),
-        out_of_area_rejected: !jagua_pose_fits_fixed_area(&part, Pose::new(4950.0, 4950.0, 0.0)),
+        out_of_area_rejected: !jagua_pose_fits_fixed_area(&part, Pose::new(4_950.0, 4_950.0, 0.0)),
         unfit_item_rejected: layout.unfit_item_rejected,
         area_size: layout.area_size,
         bins_used: layout.bins_used,

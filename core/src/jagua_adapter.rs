@@ -9,7 +9,11 @@ use jagua_rs::geometry::shape_modification::{ShapeModifyConfig, ShapeModifyMode}
 use jagua_rs::geometry::{DTransformation, OriginalShape};
 use jagua_rs::probs::bpp::entities::{BPInstance, BPLayoutType, BPPlacement, BPProblem, Bin};
 
-use crate::AREA_SIZE;
+use crate::area::AREA_SIZE_MM;
+use crate::geometry::Polygon;
+
+/// jagua f32 geometri kullanır; f64 alan f32'ye adaptör sınırında çevrilir.
+const AREA_F32: f32 = AREA_SIZE_MM as f32;
 
 pub(crate) struct LayoutProof {
     pub(crate) area_size: [f32; 2],
@@ -23,8 +27,14 @@ pub(crate) struct PlacementProof {
     pub(crate) feasible: bool,
 }
 
-fn shape(vertices: &[[f32; 2]]) -> SPolygon {
-    SPolygon::new(vertices.iter().map(|[x, y]| Point(*x, *y)).collect()).unwrap()
+fn shape(vertices: &[[f64; 2]]) -> SPolygon {
+    SPolygon::new(
+        vertices
+            .iter()
+            .map(|[x, y]| Point(*x as f32, *y as f32))
+            .collect(),
+    )
+    .unwrap()
 }
 
 fn original(shape: SPolygon, mode: ShapeModifyMode) -> OriginalShape {
@@ -37,7 +47,7 @@ fn original(shape: SPolygon, mode: ShapeModifyMode) -> OriginalShape {
 }
 
 fn container() -> Container {
-    let container_shape = SPolygon::from(Rect::try_new(0.0, 0.0, AREA_SIZE, AREA_SIZE).unwrap());
+    let container_shape = SPolygon::from(Rect::try_new(0.0, 0.0, AREA_F32, AREA_F32).unwrap());
     Container::new(
         0,
         original(container_shape, ShapeModifyMode::Deflate),
@@ -67,8 +77,8 @@ fn candidate_fits(layout: &Layout, item: &Item, d_transf: DTransformation) -> bo
     let bounds = candidate.shape.bbox;
     if bounds.x_min < 0.0
         || bounds.y_min < 0.0
-        || bounds.x_max > AREA_SIZE
-        || bounds.y_max > AREA_SIZE
+        || bounds.x_max > AREA_F32
+        || bounds.y_max > AREA_F32
     {
         return false;
     }
@@ -83,13 +93,16 @@ fn candidate_fits(layout: &Layout, item: &Item, d_transf: DTransformation) -> bo
 }
 
 pub(crate) fn placement_proof(
-    vertices: &[[f32; 2]],
-    angle_radians: f32,
-    translation: (f32, f32),
+    vertices: &Polygon,
+    angle_radians: f64,
+    translation: (f64, f64),
 ) -> PlacementProof {
     let item = item(0, shape(vertices));
     let mut layout = Layout::new(container());
-    let d_transf = DTransformation::new(angle_radians, translation);
+    let d_transf = DTransformation::new(
+        angle_radians as f32,
+        (translation.0 as f32, translation.1 as f32),
+    );
     let feasible = candidate_fits(&layout, &item, d_transf);
     if feasible {
         layout.place_item(&item, d_transf);
@@ -101,15 +114,15 @@ pub(crate) fn placement_proof(
     }
 }
 
-pub(crate) fn layout_proof(left: &[[f32; 2]], right: &[[f32; 2]]) -> LayoutProof {
+pub(crate) fn layout_proof(left: &Polygon, right: &Polygon) -> LayoutProof {
     let left = shape(left);
     let right = shape(right);
     let bounds = Rect::bounding_rect(left.bbox, right.bbox);
     let placement = DTransformation::new(
         0.0,
         (
-            (AREA_SIZE - bounds.width()) / 2.0 - bounds.x_min,
-            (AREA_SIZE - bounds.height()) / 2.0 - bounds.y_min,
+            (AREA_F32 - bounds.width()) / 2.0 - bounds.x_min,
+            (AREA_F32 - bounds.height()) / 2.0 - bounds.y_min,
         ),
     );
     let items = [
@@ -117,9 +130,9 @@ pub(crate) fn layout_proof(left: &[[f32; 2]], right: &[[f32; 2]]) -> LayoutProof
         right,
         shape(&[
             [0.0, 0.0],
-            [AREA_SIZE + 1.0, 0.0],
-            [AREA_SIZE + 1.0, AREA_SIZE + 1.0],
-            [0.0, AREA_SIZE + 1.0],
+            [f64::from(AREA_F32) + 1.0, 0.0],
+            [f64::from(AREA_F32) + 1.0, f64::from(AREA_F32) + 1.0],
+            [0.0, f64::from(AREA_F32) + 1.0],
         ]),
     ]
     .into_iter()
