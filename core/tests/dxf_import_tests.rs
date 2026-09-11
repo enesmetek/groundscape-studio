@@ -223,3 +223,18 @@ fn multipart_footprint_centroid_is_area_weighted() {
     assert!((cx - (650.0 / 3.0 - 250.0)).abs() < 1e-6, "cx={cx}");
     assert!((cy - (-200.0)).abs() < 1e-6, "cy={cy}");
 }
+
+#[test]
+fn self_intersecting_contour_is_rejected_during_import() {
+    // Kesisen iki capraz kenar; shoelace alani sifir degil, bu nedenle sadece
+    // alan kontrolu hatayi yakalayamaz.
+    let bow_tie = lwpolyline(
+        FOOTPRINT_LAYER,
+        &[("0", "0"), ("200", "200"), ("0", "200"), ("150", "0")],
+        true,
+    );
+    let dxf = dxf_bytes(&format!("{}{}", bow_tie, square_sz("300")), 4);
+
+    let error = import_product("p1", &dxf).unwrap_err();
+    assert_eq!(error.code(), "INVALID_POLYGON");
+}

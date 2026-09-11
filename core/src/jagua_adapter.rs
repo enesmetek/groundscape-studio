@@ -31,13 +31,17 @@ pub(crate) struct PlacementProof {
 }
 
 fn shape(vertices: &[[f64; 2]]) -> SPolygon {
+    try_shape(vertices).expect("trusted proof geometry")
+}
+
+fn try_shape(vertices: &[[f64; 2]]) -> Result<SPolygon, ImportError> {
     SPolygon::new(
         vertices
             .iter()
             .map(|[x, y]| Point(*x as f32, *y as f32))
             .collect(),
     )
-    .unwrap()
+    .map_err(|_| ImportError::InvalidPolygon("jagua rejected polygon"))
 }
 
 fn original(shape: SPolygon, mode: ShapeModifyMode) -> OriginalShape {
@@ -147,7 +151,7 @@ impl PlacementSession {
             }
             product_ids.push(product.id.clone());
             items.push((
-                item(items.len(), shape(&product.safety_zone)),
+                item(items.len(), try_shape(&product.safety_zone)?),
                 1, // talep: ürün başına bir
             ));
         }

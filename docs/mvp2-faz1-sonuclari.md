@@ -6,7 +6,7 @@
 
 ## 1. Ölçüm düzeneği
 
-- Sentetik fixture setleri (tümünde footprint = safety'nin 100 mm içerisi; canonical merkezde):
+- Sentetik fixture setleri (tümünde asimetrik footprint; centroid geometriden hesaplanır):
   - `buyuk1kucuk6`: 1×1200² (auto) + 6×500²
   - `fitness7`: 7×600² (benzer boyutlu; eşitlik sahte ana ürün seçmez)
   - `peripheral`: 1×1400² (`peripheral` rolü) + 1×1200² (auto) + 4×500²
@@ -17,27 +17,31 @@
   ölçütle).
 - Build: `cargo run --release`.
 
-## 2. Sonuçlar (20 seed ortalaması)
+## 2. Sonuçlar (20 seed ortalaması, doğruluk düzeltmeleri sonrası)
 
-| Set | Tam yerleşim (M1/F1) | Toplam skor (M1/F1) | Aday sayısı (M1/F1) | Süre ms (M1/F1) |
-|---|---|---|---|---|
-| buyuk1kucuk6 | 20/20 | 0,714 / **0,176** | 59 / 80 | 1,3 / 0,7 |
-| fitness7 | 20/20 | 0,364 / **0,128** | 57 / 76 | 1,9 / 0,6 |
-| peripheral | 20/20 | 0,628 / **0,390** | 57 / 82 | 2,3 / 0,4 |
-| ikibuyuk | 20/20 | 0,732 / **0,233** | 59 / 90 | 0,6 / 0,5 |
+| Set | Tam yerleşim (M1/F1) | Toplam skor (M1/F1) | Aday sayısı (M1/F1) |
+|---|---|---|---|
+| buyuk1kucuk6 | 20/20 | 0,617 / **0,165** | 59 / 83 |
+| fitness7 | 20/20 | 0,351 / **0,129** | 62 / 78 |
+| peripheral | 20/20 | 0,508 / **0,409** | 59 / 88 |
+| ikibuyuk | 20/20 | 0,512 / **0,231** | 58 / 115 |
+
+Duvar saati ölçümü aynı makinede arka plan yükünden belirgin etkilendiği için
+karar metriğinden çıkarıldı; aday sayısı deterministik maliyet vekili olarak
+korundu.
 
 ### Bileşen dökümü (ortalamalar)
 
 | Set | Kaynak | anchor | balance | distribution | spacing | Toplam |
 |---|---|---|---|---|---|---|
-| buyuk1kucuk6 | MVP-1 | 0,094 | 0,236 | 0,385 | 0,000 | 0,714 |
-| buyuk1kucuk6 | Faz 1 | 0,000 | 0,027 | 0,149 | 0,000 | 0,176 |
-| fitness7 | MVP-1 | 0,000 | 0,126 | 0,237 | 0,000 | 0,364 |
-| fitness7 | Faz 1 | 0,000 | 0,043 | 0,085 | 0,000 | 0,128 |
-| peripheral | MVP-1 | 0,000 | 0,224 | 0,402 | 0,002 | 0,628 |
-| peripheral | Faz 1 | 0,000 | 0,091 | 0,298 | 0,001 | 0,390 |
-| ikibuyuk | MVP-1 | 0,100 | 0,232 | 0,401 | 0,000 | 0,732 |
-| ikibuyuk | Faz 1 | 0,000 | 0,088 | 0,145 | 0,000 | 0,233 |
+| buyuk1kucuk6 | MVP-1 | 0,053 | 0,171 | 0,392 | 0,000 | 0,617 |
+| buyuk1kucuk6 | Faz 1 | 0,000 | 0,024 | 0,141 | 0,000 | 0,165 |
+| fitness7 | MVP-1 | 0,000 | 0,127 | 0,223 | 0,000 | 0,351 |
+| fitness7 | Faz 1 | 0,000 | 0,039 | 0,090 | 0,000 | 0,129 |
+| peripheral | MVP-1 | 0,000 | 0,147 | 0,361 | 0,000 | 0,508 |
+| peripheral | Faz 1 | 0,000 | 0,094 | 0,316 | 0,000 | 0,409 |
+| ikibuyuk | MVP-1 | 0,037 | 0,130 | 0,345 | 0,000 | 0,512 |
+| ikibuyuk | Faz 1 | 0,000 | 0,067 | 0,164 | 0,000 | 0,231 |
 
 ## 3. Yorum
 
@@ -48,7 +52,7 @@
   `distribution` bileşenlerinde — bölgesel aday üretimi + skor sıralaması,
   ürünleri merkeze ve 2×2 grid'e dengeli dağıtıyor.
 - **Aday sayısı hafif arttı** (çeşitlilik koşulu tamponu mm-varyasyonlarıyla
-  dolduramayıp yeni örnekleme yapmaya zorluyor), **süre artmadı**.
+  dolduramayıp yeni örnekleme yapmaya zorluyor).
 - `spacing` bileşeni bu fixture'larda ~0: hedef boşluk (0,05·5000 = 250 mm)
   ürün merkezleri arasında kolayca sağlanıyor. Ağırlık ayarı P5 için gereken
   ek kalibrasyon ihtiyacını göstermiyor; başlangıç ağırlıkları
@@ -82,7 +86,8 @@ roller kullanılamıyor ve görsel kapı geçilemiyordu. Tamamlama adımları:
    PlacementCanvas anchor ürünün safety zone'unu düz turuncu kenarlıkla
    işaretler.
 4. Kapı: `npm run build` (gerçek WASM + gerçek 3 DXF) ile Playwright e2e
-   geçer; `frontend/tests/placement.spec.ts` rol etiketlerini de doğrular.
+   geçer; `frontend/tests/placement.spec.ts` rol etiketleriyle birlikte
+   anchor'ın merkez bölgede, peripheral'ın merkez dışında olduğunu doğrular.
    Ekran görüntüsü: tarayıcıda `npm run dev` / `npm run preview` ile
    doğrulama kullanıcıya aittir (aşağıdaki uyarıyla aynı kapı).
 
@@ -93,9 +98,9 @@ roller kullanılamıyor ve görsel kapı geçilemiyordu. Tamamlama adımları:
    bileşenleri eziyor; bu yüzden hücre paylarının eşit paydan ortalama mutlak
    sapması `(Σ|sₖ−Σ/g|)/(2Σ)` ∈ [0,1] kullanıldı. "Her hücrede ürün olsun"
    hedefi yok; ürün, alanına eşit kare olarak hücrelere bölünür.
-2. **`auto`→anchor çıkarımı benzersiz maksimumdur:** eşitlik (benzer boyutlu
-   fitness seti) sahte ana ürün seçmez — plan §7'deki fitness kapısı bu
-   davranışı gerektirir.
+2. **`auto`→anchor çıkarımı baskın maksimumdur:** en büyük footprint ikinci
+   büyükten %1'den fazla büyük değilse `auto` kalır. Eşit veya sayısal gürültü
+   düzeyinde farklı fitness ürünleri sahte ana ürün seçmez.
 3. **`search_placement` imzasındaki `&LayoutObjective`** plan P4'te
    öngörülüyordu; bölgesel örnekleme merkez bölge oranını (P3) zaten
    gerektirdiği için P3'te eklendi.
@@ -104,8 +109,40 @@ roller kullanılamıyor ve görsel kapı geçilemiyordu. Tamamlama adımları:
    eşikten uzak" olarak uygulandı: "en az bir" okuması, tek konumun
    mm-varyasyonlarının tamponu doldurmasına izin veriyordu (plan §2.7
    amacıyla çelişir).
+5. **Dağılım footprint'i alan-eşdeğer kare vekilidir:** gerçek döndürülmüş
+   footprint hücre kesişimi hesaplanmaz. Bu, Faz 1 için bilinçli ve belgelenmiş
+   yaklaşımdır; konkav/çok parçalı ürünlerde hücre payı yaklaşık değerdir.
 
-## 6. Tekrar üretim
+## 6. Doğruluk ve dayanıklılık düzeltmeleri
+
+- Aday bütçesi her örnek için yalnız bir kez sayılır; küçük worker dilimleri
+  aynı seed ve kümülatif bütçeyle tek çağrının sonucunu üretir.
+- **Aday tamponu atomiktir:** bütçe ortasında kalan kısmi tampon sıralamaya
+  katılmaz ve replay'de yeniden kurulur; bu prefix-stabil davranış worker
+  dilim boyutundan bağımsız sonucu garanti eder (`INVALID_SEARCH_CONFIG`
+  için `SearchConfig::validate` sınır denetimine bakın).
+- Geçersiz objective/arama yapılandırması, boş ürün kümesi ve
+  self-intersecting DXF kontrollü hata döndürür; Jagua shape üretimi bu
+  girdilerde panic etmez. Worker PLACE hataları da yapılandırılmış API kodu
+  taşır (`toApiError`).
+- `SEARCH_BUDGET_EXHAUSTED`, yalnız örnekleme bütçesi kullanıldığında döner;
+  sıfır adaylı yapılandırma `SEARCH_SPACE_EXHAUSTED` olarak ayrılır.
+- Spacing merkez uzaklığı yerine alan-eşdeğer kare footprint kenar boşluğunu
+  ölçer (diagonal komşular dahil); anchor ve spacing terimleri ürün/çift
+  sayısına normalize edilir.
+- Frontend INIT mesajı `placementRole`, `tags` ve `ageGroup` metadata'sını
+  tip güvenli biçimde worker/WASM sınırına taşır ve READY yükünde geri döner.
+- Ölçüm fixture'ları (`faz1_bench`, `mvp1_score`, arama testleri) canonical
+  geometriye taşındı: safety merkezi origin'de, footprint centroid'i
+  geometriden hesaplanır; MVP-1/Faz-1 karşılaştırması üretim geometrisiyle
+  aynı sözleşmeyi kullanır.
+
+Doğrulama: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace`, `npm run wasm:dev`, `npm run typecheck`,
+`npm run test:ui`, `npm run build` ve `npm run test:e2e`.
+
+## 7. Tekrar üretim
 
 ```powershell
 # MVP-1 tarafı (main dalı geçici worktree'de):
@@ -118,11 +155,20 @@ cargo run --release -p groundscape-core --example faz1_bench > faz1_bench.txt
 
 # MVP-1 yerleşimlerini Faz-1 skoruyla puanlama:
 cargo run --release -p groundscape-core --example mvp1_score -- <mvp1_bench.txt>
+# veya pipeline icin: ...mvp1_bench | ...mvp1_score -- -
 
 # Tam doğrulama:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+
+# Frontend/WASM:
+cd frontend
+npm run wasm:dev
+npm run typecheck
+npm run test:ui
+npm run build
+npm run test:e2e
 ```
 
 `mvp1_score` örneği MVP-1 çıktısındaki `PLACE` satırlarını Faz-1 skor

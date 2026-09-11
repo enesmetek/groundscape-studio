@@ -1,29 +1,31 @@
 //! MVP-1 yerleşimlerini Faz-1 skor fonksiyonuyla puanlar (MVP-2 plan P5).
 //! Girdi: `mvp1_bench` örneğinin çıktısı (RESULT/PLACE satırları).
 //!
-//! Kullanım: cargo run --release -p groundscape-core --example mvp1_score -- <mvp1_bench.txt>
+//! Kullanım: cargo run --release -p groundscape-core --example mvp1_score -- <mvp1_bench.txt|->
 
 use groundscape_core::{
-    LayoutObjective, PlacementRole, Polygon, Pose, ProductGeometry, ScoredItem, score_components,
-    score_layout,
+    LayoutObjective, PlacementRole, Polygon, Pose, ProductGeometry, ScoredItem,
+    area_weighted_centroid, score_components, score_layout,
 };
-use std::fs;
+use std::{fs, io::Read};
 
 fn product(id: &str, size: f64, role: PlacementRole) -> ProductGeometry {
-    let safety: Polygon = vec![[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
+    let half = size / 2.0;
+    let safety: Polygon = vec![[-half, -half], [half, -half], [half, half], [-half, half]];
     let footprint: Polygon = vec![
-        [100.0, 100.0],
-        [size - 100.0, 100.0],
-        [size - 100.0, size - 100.0],
-        [100.0, size - 100.0],
+        [100.0 - half, 50.0 - half],
+        [half - 150.0, 50.0 - half],
+        [half - 150.0, half - 100.0],
+        [100.0 - half, half - 50.0],
     ];
+    let centroid = area_weighted_centroid(std::slice::from_ref(&footprint));
     ProductGeometry {
         id: id.to_owned(),
         footprint_polygons: vec![footprint],
         safety_zone: safety,
         safety_area_mm2: size * size,
-        footprint_area_mm2: (size - 200.0) * (size - 200.0),
-        footprint_centroid_local: [0.0, 0.0],
+        footprint_area_mm2: (size - 250.0) * (size - 125.0),
+        footprint_centroid_local: centroid,
         placement_role: role,
         tags: Vec::new(),
         age_group: None,
@@ -73,7 +75,15 @@ fn sets() -> Vec<(&'static str, Vec<ProductGeometry>)> {
 fn main() {
     let path = std::env::args().nth(1).expect("mvp1 output path required");
     let objective = LayoutObjective::default();
-    let text = fs::read_to_string(&path).expect("read mvp1 output");
+    let text = if path == "-" {
+        let mut text = String::new();
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .expect("read mvp1 output from stdin");
+        text
+    } else {
+        fs::read_to_string(&path).expect("read mvp1 output")
+    };
 
     // PLACE satırlarını (set, seed) grubuna topla.
     let mut groups: std::collections::BTreeMap<(String, u64), Vec<(String, Pose)>> =
@@ -88,7 +98,7 @@ fn main() {
             parts[6].parse::<f64>().expect("deg").to_radians(),
         );
         groups
-            .entry(key_clone(&key))
+            .entry(key.clone())
             .or_default()
             .push((parts[3].to_owned(), pose));
     }
@@ -133,8 +143,4 @@ fn main() {
             score
         );
     }
-}
-
-fn key_clone(key: &(String, u64)) -> (String, u64) {
-    key.clone()
 }

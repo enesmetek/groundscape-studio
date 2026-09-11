@@ -4,18 +4,18 @@ use groundscape_core::{
 };
 
 fn product(id: &str, size: f64) -> ProductGeometry {
-    let safety: Polygon = vec![[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
-    // Asimetrik footprint: safety içinde kayık — gerçek merkezi (size/2−25,
-    // size/2−12.5). Böylece footprint_centroid_local ≠ (0,0) ve skorlamadaki
-    // dünya merkezi rotasyona duyarlıdır (plan §4.3, P5.5 düzeltmesi).
+    let half = size / 2.0;
+    let safety: Polygon = vec![[-half, -half], [half, -half], [half, half], [-half, half]];
+    // Asimetrik canonical footprint: footprint_centroid_local ≠ (0,0) ve
+    // skorlamadaki dünya merkezi rotasyona duyarlıdır (plan §4.3, P5.5).
     let footprint: Polygon = vec![
-        [100.0, 50.0],
-        [size - 150.0, 50.0],
-        [size - 150.0, size - 100.0],
-        [100.0, size - 50.0],
+        [100.0 - half, 50.0 - half],
+        [half - 150.0, 50.0 - half],
+        [half - 150.0, half - 100.0],
+        [100.0 - half, half - 50.0],
     ];
     // Centroid'i sabit yazma; geometriden hesapla (dxf_import ile aynı yol).
-    // Canonical merkez: safety bbox merkezi (size/2, size/2).
+    // Canonical safety merkezi origin'dir.
     let centroid = area_weighted_centroid(std::slice::from_ref(&footprint));
     ProductGeometry {
         id: id.to_owned(),
@@ -23,7 +23,7 @@ fn product(id: &str, size: f64) -> ProductGeometry {
         safety_zone: safety,
         safety_area_mm2: size * size,
         footprint_area_mm2: (size - 250.0) * (size - 125.0),
-        footprint_centroid_local: [centroid[0] - size / 2.0, centroid[1] - size / 2.0],
+        footprint_centroid_local: centroid,
         placement_role: PlacementRole::Auto,
         tags: Vec::new(),
         age_group: None,
@@ -42,15 +42,21 @@ fn fast_config() -> SearchConfig {
 }
 
 fn rectangle_product(id: &str, width: f64, height: f64) -> ProductGeometry {
+    let (half_width, half_height) = (width / 2.0, height / 2.0);
     ProductGeometry {
         id: id.to_owned(),
         footprint_polygons: vec![vec![
-            [10.0, 10.0],
-            [width - 10.0, 10.0],
-            [width - 10.0, height - 10.0],
-            [10.0, height - 10.0],
+            [10.0 - half_width, 10.0 - half_height],
+            [half_width - 10.0, 10.0 - half_height],
+            [half_width - 10.0, half_height - 10.0],
+            [10.0 - half_width, half_height - 10.0],
         ]],
-        safety_zone: vec![[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]],
+        safety_zone: vec![
+            [-half_width, -half_height],
+            [half_width, -half_height],
+            [half_width, half_height],
+            [-half_width, half_height],
+        ],
         safety_area_mm2: width * height,
         footprint_area_mm2: (width - 20.0) * (height - 20.0),
         footprint_centroid_local: [0.0, 0.0],
@@ -235,7 +241,8 @@ fn big_product_footprint_center_stays_in_center_region() {
         .find(|p| p.product_id == "big")
         .unwrap()
         .pose;
-    let center = groundscape_core::world_footprint_center(*pose, [-25.0, -12.5]);
+    let center =
+        groundscape_core::world_footprint_center(*pose, products[0].footprint_centroid_local);
     let half = 0.25 * 5000.0;
     // Asimetrik footprint merkezi pozu en fazla ~28 mm kaydırır — tolerans buna göre.
     let margin = half + 30.0;
@@ -243,4 +250,64 @@ fn big_product_footprint_center_stays_in_center_region() {
         (center[0] - 2500.0).abs() <= margin && (center[1] - 2500.0).abs() <= margin,
         "big product center {center:?} outside region"
     );
+}
+
+#[test]
+fn invalid_objective_is_rejected_before_search() {
+    let products = [product("a", 1000.0)];
+    let mut session = PlacementSession::new(&products).unwrap();
+    let objective = LayoutObjective {
+        grid: 4,
+        ..LayoutObjective::default()
+    };
+
+    let result = search_placement(&mut session, &products, &fast_config(), &objective, 1);
+    assert_eq!(result.status, Status::InvalidInput);
+    assert_eq!(result.reason_code, "INVALID_LAYOUT_OBJECTIVE");
+    assert_eq!(result.stats.candidates_tried, 0);
+}
+
+#[test]
+fn exhausted_sampling_is_not_reported_as_budget_exhaustion() {
+    let products = [product("a", 1000.0)];
+    let mut session = PlacementSession::new(&products).unwrap();
+    let config = SearchConfig {
+        global_samples_per_item: 0,
+        local_samples_per_item: 0,
+        candidate_buffer_size: 6,
+        max_restarts: 0,
+        max_total_candidates: 100,
+    };
+
+    let result = search_placement(
+        &mut session,
+        &products,
+        &config,
+        &LayoutObjective::default(),
+        1,
+    );
+    assert_eq!(result.status, Status::NoSolutionFound);
+    assert_eq!(result.reason_code, "SEARCH_SPACE_EXHAUSTED");
+    assert_eq!(result.stats.candidates_tried, 0);
+}
+
+#[test]
+fn invalid_search_config_is_rejected_before_search() {
+    let products = [product("a", 1000.0)];
+    let mut session = PlacementSession::new(&products).unwrap();
+    let config = SearchConfig {
+        candidate_buffer_size: 0,
+        ..fast_config()
+    };
+
+    let result = search_placement(
+        &mut session,
+        &products,
+        &config,
+        &LayoutObjective::default(),
+        1,
+    );
+    assert_eq!(result.status, Status::InvalidInput);
+    assert_eq!(result.reason_code, "INVALID_SEARCH_CONFIG");
+    assert_eq!(result.stats.candidates_tried, 0);
 }

@@ -23,6 +23,16 @@ fn product(id: &str, size: f64) -> ProductGeometry {
 }
 
 #[test]
+fn malformed_polygon_returns_error_instead_of_panicking() {
+    let mut malformed = product("bad", 1000.0);
+    malformed.safety_zone = vec![[0.0, 0.0], [800.0, 800.0], [0.0, 800.0], [600.0, 0.0]];
+
+    let result = std::panic::catch_unwind(|| PlacementSession::new(&[malformed]));
+    assert!(result.is_ok(), "malformed polygon must not panic");
+    assert!(result.unwrap().is_err());
+}
+
+#[test]
 fn three_products_place_in_one_bin() {
     let products = [
         product("a", 1000.0),

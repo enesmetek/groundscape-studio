@@ -1,6 +1,6 @@
 use groundscape_core::{
-    AREA_SIZE_MM, ComponentWeights, LayoutObjective, PlacementRole, Pose, ScoredItem, score_layout,
-    score_layout_delta, world_footprint_center,
+    AREA_SIZE_MM, ComponentWeights, LayoutObjective, PlacementRole, Pose, ScoredItem,
+    score_components, score_layout, score_layout_delta, world_footprint_center,
 };
 
 fn objective() -> LayoutObjective {
@@ -198,4 +198,101 @@ fn orientation_weight_zero_keeps_component_inert() {
         score_layout(&items, &obj_oriented),
         score_layout(&items, &obj)
     );
+}
+
+#[test]
+fn objective_validation_rejects_nonfinite_and_negative_values() {
+    let mut obj = objective();
+    obj.weights.balance = -1.0;
+    assert!(obj.validate().is_err());
+
+    let mut obj = objective();
+    obj.weights.anchor = f64::NAN;
+    assert!(obj.validate().is_err());
+
+    let mut obj = objective();
+    obj.anchor_region_ratio = 0.6;
+    assert!(obj.validate().is_err());
+
+    let mut obj = objective();
+    obj.spacing_target_ratio = f64::INFINITY;
+    assert!(obj.validate().is_err());
+}
+
+#[test]
+fn spacing_uses_footprint_gap_not_center_distance() {
+    let spacing_only = LayoutObjective {
+        weights: ComponentWeights {
+            anchor: 0.0,
+            balance: 0.0,
+            distribution: 0.0,
+            spacing: 1.0,
+            orientation: 0.0,
+        },
+        ..objective()
+    };
+    // Her iki ciftte de kare footprint'ler arasindaki fiziksel bosluk 100 mm.
+    let small = [
+        item_at(2000.0, 2500.0, 10_000.0, PlacementRole::Distributed),
+        item_at(2200.0, 2500.0, 10_000.0, PlacementRole::Distributed),
+    ];
+    let large = [
+        item_at(1500.0, 2500.0, 1_000_000.0, PlacementRole::Distributed),
+        item_at(2600.0, 2500.0, 1_000_000.0, PlacementRole::Distributed),
+    ];
+
+    let small_score = score_layout(&small, &spacing_only);
+    let large_score = score_layout(&large, &spacing_only);
+    assert!(small_score > 0.0);
+    assert!((small_score - large_score).abs() < 1e-9);
+}
+
+#[test]
+fn anchor_and_spacing_components_are_population_normalized() {
+    let anchor = item_at(4500.0, 2500.0, 100.0, PlacementRole::Anchor);
+    let one_anchor = score_components(&[anchor], &objective())[0];
+    let two_anchors = score_components(&[anchor, anchor], &objective())[0];
+    assert!((one_anchor - two_anchors).abs() < 1e-9);
+
+    let close = item_at(2500.0, 2500.0, 100.0, PlacementRole::Distributed);
+    let one_pair = score_components(&[close, close], &objective())[3];
+    let four_items = score_components(&[close, close, close, close], &objective())[3];
+    assert!((one_pair - four_items).abs() < 1e-9);
+}
+
+#[test]
+fn direct_scoring_does_not_panic_on_oversized_grid() {
+    let obj = LayoutObjective {
+        grid: 65_536,
+        ..objective()
+    };
+    let items = [item_at(2500.0, 2500.0, 100.0, PlacementRole::Distributed)];
+
+    let result = std::panic::catch_unwind(|| score_layout(&items, &obj));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn near_equal_auto_products_do_not_create_a_fake_anchor() {
+    let item = ScoredItem::new(
+        Pose::new(2500.0, 2500.0, 0.0),
+        [0.0, 0.0],
+        10_000.0,
+        PlacementRole::Auto,
+        9_999.0,
+    );
+    assert_eq!(item.role, PlacementRole::Auto);
+}
+
+#[test]
+fn spacing_uses_square_gap_for_diagonal_neighbors() {
+    let mut obj = objective();
+    obj.spacing_target_ratio = 0.01; // 50 mm
+    let items = [
+        item_at(0.0, 0.0, 10_000.0, PlacementRole::Distributed),
+        item_at(100.0, 100.0, 10_000.0, PlacementRole::Distributed),
+    ];
+
+    // 100 mm kareler koseden temas eder: footprint boslugu 0'dır.
+    assert!((score_components(&items, &obj)[3] - 0.01).abs() < 1e-12);
 }

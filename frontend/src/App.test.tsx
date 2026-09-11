@@ -51,9 +51,9 @@ function readyMessage(requestId: string): WorkerMessage {
     ready: {
       areaMm: 5000,
       products: [
-        { id: 'product-1', footprintPolygons: [[[0, 0], [900, 0], [900, 900], [0, 900]]], safetyZone: [[0, 0], [1500, 0], [1500, 1500], [0, 1500]], safetyAreaMm2: 2_250_000, placementRole: 'anchor' },
-        { id: 'product-2', footprintPolygons: [[[0, 0], [700, 0], [700, 700], [0, 700]]], safetyZone: [[0, 0], [1200, 0], [1200, 1200], [0, 1200]], safetyAreaMm2: 1_440_000, placementRole: 'distributed' },
-        { id: 'product-3', footprintPolygons: [[[0, 0], [500, 0], [500, 500], [0, 500]]], safetyZone: [[0, 0], [900, 0], [900, 900], [0, 900]], safetyAreaMm2: 810_000, placementRole: 'peripheral' },
+        { id: 'product-1', footprintPolygons: [[[0, 0], [900, 0], [900, 900], [0, 900]]], safetyZone: [[0, 0], [1500, 0], [1500, 1500], [0, 1500]], safetyAreaMm2: 2_250_000, placementRole: 'anchor', tags: ['main-equipment'], ageGroup: 'all' },
+        { id: 'product-2', footprintPolygons: [[[0, 0], [700, 0], [700, 700], [0, 700]]], safetyZone: [[0, 0], [1200, 0], [1200, 1200], [0, 1200]], safetyAreaMm2: 1_440_000, placementRole: 'distributed', tags: [], ageGroup: null },
+        { id: 'product-3', footprintPolygons: [[[0, 0], [500, 0], [500, 500], [0, 500]]], safetyZone: [[0, 0], [900, 0], [900, 900], [0, 900]], safetyAreaMm2: 810_000, placementRole: 'peripheral', tags: [], ageGroup: null },
       ],
     },
   }
@@ -87,6 +87,13 @@ async function bootToReady(onLoading?: () => void) {
     ([message]) => (message as { type: string }).type === 'INIT',
   )
   expect(initCall).toBeTruthy()
+  expect((initCall?.[0] as { products: unknown[] }).products[0]).toEqual(
+    expect.objectContaining({
+      placementRole: 'anchor',
+      tags: ['main-equipment'],
+      ageGroup: 'all',
+    }),
+  )
   const requestId = (initCall?.[0] as { requestId: string }).requestId
   currentWorker().onmessage?.({ data: readyMessage(requestId) })
   await waitFor(() => expect(screen.getByRole('button', { name: 'Yerleştir' })).toBeEnabled())
@@ -127,6 +134,10 @@ describe('App durum makinesi', () => {
       'translate(0 5000) scale(1 -1)',
     )
     expect(canvas.querySelectorAll('g g')).toHaveLength(3)
+    const anchor = canvas.querySelector('[data-product-id="product-1"]')
+    expect(anchor).toHaveAttribute('data-placement-role', 'anchor')
+    expect(anchor?.querySelector(':scope > polygon')).toHaveAttribute('stroke', '#d96b43')
+    expect(anchor?.querySelector(':scope > polygon')).not.toHaveAttribute('stroke-dasharray')
     expect(canvas.querySelector('g g')).toHaveAttribute('transform', 'translate(0 0) rotate(0)')
     expect(canvas.querySelector('g g polygon')).toHaveAttribute(
       'points',

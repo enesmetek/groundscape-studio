@@ -72,6 +72,8 @@ pub fn load_products(inputs: JsValue) -> Result<JsValue, JsValue> {
                 footprint_area_mm2: product.footprint_area_mm2,
                 footprint_centroid_local: product.footprint_centroid_local,
                 placement_role: product.placement_role,
+                tags: product.tags.clone(),
+                age_group: product.age_group.clone(),
             })
             .collect(),
     };
@@ -97,6 +99,8 @@ struct ProductPayload {
     footprint_area_mm2: f64,
     footprint_centroid_local: [f64; 2],
     placement_role: crate::model::PlacementRole,
+    tags: Vec<String>,
+    age_group: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,11 +121,29 @@ pub fn start_placement(config: JsValue, seed: u64, objective: JsValue) -> Result
     console_error_panic_hook::set_once();
     let config: SearchConfig =
         serde_wasm_bindgen::from_value(config).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    config.validate().map_err(|description| {
+        serde_wasm_bindgen::to_value(&ApiError {
+            code: "INVALID_INPUT",
+            phase: "search",
+            product_id: None,
+            description: description.to_owned(),
+        })
+        .unwrap_or_else(|_| JsValue::from_str(description))
+    })?;
     let objective: LayoutObjective = if objective.is_undefined() || objective.is_null() {
         LayoutObjective::default()
     } else {
         serde_wasm_bindgen::from_value(objective).map_err(|e| JsValue::from_str(&e.to_string()))?
     };
+    objective.validate().map_err(|description| {
+        serde_wasm_bindgen::to_value(&ApiError {
+            code: "INVALID_INPUT",
+            phase: "search",
+            product_id: None,
+            description: description.to_owned(),
+        })
+        .unwrap_or_else(|_| JsValue::from_str(description))
+    })?;
     ENGINE.with(|engine| {
         engine
             .borrow_mut()

@@ -136,6 +136,72 @@ fn positive_slice_smaller_than_product_count_is_not_terminal() {
 }
 
 #[test]
+fn one_candidate_slices_eventually_place_a_single_product() {
+    let mut engine = Engine::empty();
+    engine
+        .add_product("a", &fixture_bytes("a", 1000.0))
+        .unwrap();
+    let mut config = small_config();
+    config.max_total_candidates = 8;
+    engine.start_placement(config, 42);
+
+    let final_report = loop {
+        let report = engine.step_placement(1);
+        if report.done {
+            break report;
+        }
+    };
+
+    let result = final_report.result.expect("terminal result");
+    assert_eq!(result.status, Status::Complete, "{result:?}");
+    assert_eq!(result.placements.len(), 1);
+}
+
+fn run_with_slice(slice: usize, seed: u64) -> StepReport {
+    let mut engine = Engine::empty();
+    for (id, size) in [("a", 1200.0), ("b", 900.0), ("c", 700.0)] {
+        engine.add_product(id, &fixture_bytes(id, size)).unwrap();
+    }
+    engine.start_placement(small_config(), seed);
+    for _ in 0..small_config().max_total_candidates {
+        let report = engine.step_placement(slice);
+        if report.done {
+            return report;
+        }
+    }
+    panic!("search did not terminate");
+}
+
+#[test]
+fn final_result_is_independent_of_worker_slice_size() {
+    for seed in [1, 42, 99] {
+        let one = run_with_slice(1, seed).result.expect("slice=1 result");
+        let seven = run_with_slice(7, seed).result.expect("slice=7 result");
+        let two_fifty_six = run_with_slice(256, seed).result.expect("slice=256 result");
+
+        assert_eq!(one.status, seven.status);
+        assert_eq!(one.placements, seven.placements);
+        assert_eq!(seven.status, two_fifty_six.status);
+        assert_eq!(seven.placements, two_fifty_six.placements);
+    }
+}
+
+#[test]
+fn empty_product_set_returns_controlled_invalid_result() {
+    let mut engine = Engine::empty();
+    let started = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        engine.start_placement(small_config(), 1);
+    }));
+    assert!(started.is_ok(), "empty input must not panic");
+
+    let report = engine.step_placement(1);
+    assert!(report.done);
+    let result = report.result.expect("invalid input result");
+    assert_eq!(result.status, Status::InvalidInput);
+    assert_eq!(result.reason_code, "EMPTY_PRODUCT_SET");
+}
+
+#[test]
 fn worker_dtos_use_typescript_names() {
     let status = serde_json::to_value(Status::Complete).unwrap();
     assert_eq!(status, "COMPLETE");

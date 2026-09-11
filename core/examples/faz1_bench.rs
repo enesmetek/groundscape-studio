@@ -12,14 +12,15 @@ use groundscape_core::{
 use std::time::Instant;
 
 fn product(id: &str, size: f64, role: PlacementRole) -> ProductGeometry {
-    let safety: Polygon = vec![[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
-    // Asimetrik footprint: gerçek merkezi (size/2−25, size/2−12.5) —
-    // centroid'i geometriden hesapla, sabit yazma (MVP-2 plan P5.5).
+    let half = size / 2.0;
+    let safety: Polygon = vec![[-half, -half], [half, -half], [half, half], [-half, half]];
+    // Asimetrik canonical footprint: centroid'i geometriden hesapla, sabit
+    // yazma (MVP-2 plan P5.5).
     let footprint: Polygon = vec![
-        [100.0, 50.0],
-        [size - 150.0, 50.0],
-        [size - 150.0, size - 100.0],
-        [100.0, size - 50.0],
+        [100.0 - half, 50.0 - half],
+        [half - 150.0, 50.0 - half],
+        [half - 150.0, half - 100.0],
+        [100.0 - half, half - 50.0],
     ];
     let centroid = area_weighted_centroid(std::slice::from_ref(&footprint));
     ProductGeometry {
@@ -28,7 +29,7 @@ fn product(id: &str, size: f64, role: PlacementRole) -> ProductGeometry {
         safety_zone: safety,
         safety_area_mm2: size * size,
         footprint_area_mm2: (size - 250.0) * (size - 125.0),
-        footprint_centroid_local: [centroid[0] - size / 2.0, centroid[1] - size / 2.0],
+        footprint_centroid_local: centroid,
         placement_role: role,
         tags: Vec::new(),
         age_group: None,

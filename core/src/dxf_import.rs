@@ -9,8 +9,8 @@ use dxf::enums::Units;
 
 use crate::error::ImportError;
 use crate::geometry::{
-    AREA_EPSILON_MM2, area_weighted_centroid, canonicalize, dedupe_consecutive, shoelace_area,
-    strictly_within,
+    AREA_EPSILON_MM2, area_weighted_centroid, canonicalize, dedupe_consecutive, is_simple_polygon,
+    shoelace_area, strictly_within,
 };
 use crate::model::{PlacementRole, ProductGeometry};
 
@@ -132,6 +132,9 @@ fn validate_contour(raw: Vec<[f64; 2]>) -> Result<Vec<[f64; 2]>, ImportError> {
     }
     if shoelace_area(&polygon) <= AREA_EPSILON_MM2 {
         return Err(ImportError::InvalidPolygon("contour area is near zero"));
+    }
+    if !is_simple_polygon(&polygon) {
+        return Err(ImportError::InvalidPolygon("contour is self-intersecting"));
     }
     Ok(polygon)
 }

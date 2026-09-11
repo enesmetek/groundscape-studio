@@ -73,7 +73,13 @@ export function usePlacementWorker() {
             const response = await fetch(product.url, { signal: controller.signal })
             if (!response.ok) throw new Error(`${product.id}: HTTP ${response.status}`)
             const buffer = await response.arrayBuffer()
-            return { id: product.id, bytes: buffer, placementRole: product.role }
+            return {
+              id: product.id,
+              bytes: buffer,
+              placementRole: product.role,
+              tags: product.tags ? [...product.tags] : undefined,
+              ageGroup: product.ageGroup,
+            }
           }),
         )
         requestIdRef.current = crypto.randomUUID()

@@ -12,7 +12,7 @@ use crate::error::ImportError;
 use crate::jagua_adapter::PlacementSession;
 use crate::model::{PlacementRole, ProductGeometry};
 use crate::scoring::LayoutObjective;
-use crate::search::{PlacementResult, SearchConfig, Status, search_placement};
+use crate::search::{PlacementResult, SearchConfig, SearchStats, Status, search_placement};
 
 /// Motor durumu. Aday sayacı tüm adımları ve restartları kapsayan global
 /// üst sınıra tabidir (plan §11.3).
@@ -87,8 +87,22 @@ impl Engine {
         self.seed = seed;
         self.candidates_used = 0;
         self.result = None;
+        if self.products.is_empty() {
+            self.session = None;
+            self.result = Some(PlacementResult {
+                status: Status::InvalidInput,
+                placements: vec![],
+                unplaced: vec![],
+                reason_code: "EMPTY_PRODUCT_SET",
+                stats: SearchStats {
+                    candidates_tried: 0,
+                    restarts: 0,
+                },
+            });
+            return;
+        }
         self.session =
-            Some(PlacementSession::new(&self.products).expect("session over validated products"));
+            Some(PlacementSession::new(&self.products).expect("products validated during import"));
     }
 
     /// Oturum temizliği.
@@ -103,6 +117,9 @@ impl Engine {
     #[must_use]
     pub fn step_placement(&mut self, max_candidates: usize) -> StepReport {
         let Some(session) = self.session.as_mut() else {
+            if let Some(result) = self.result.clone() {
+                return self.done_step(0, result);
+            }
             return StepReport {
                 ran_candidates: 0,
                 done: true,
@@ -129,46 +146,35 @@ impl Engine {
             };
         }
 
-        // ponytail: bounded stateless slices; preserve search state if profiling
-        // shows independent deterministic slices hurt solution quality.
+        // Kümülatif deterministik replay: her dilim aynı seed ile önceki
+        // bütçe + yeni dilim kadar arar. Sonuç dilim boyutundan bağımsızdır;
+        // kalıcı DFS durum makinesi eklemeden Worker iptal noktaları korunur.
         let mut config = self.config.clone();
-        config.max_total_candidates = step;
-        let per_item = step.div_ceil(self.products.len().max(1));
-        config.local_samples_per_item = config.local_samples_per_item.min(per_item / 2);
-        config.global_samples_per_item = config.global_samples_per_item.min(per_item);
-        let seed = self.seed.wrapping_add(self.candidates_used as u64);
+        config.max_total_candidates = self.candidates_used + step;
         let objective = self.objective.clone();
-        let mut report = search_placement(session, &self.products, &config, &objective, seed);
-        let ran = report.stats.candidates_tried.min(step);
-        self.candidates_used += ran;
+        let report = search_placement(session, &self.products, &config, &objective, self.seed);
+        let total = report
+            .stats
+            .candidates_tried
+            .min(config.max_total_candidates);
+        let ran = total.saturating_sub(self.candidates_used);
+        self.candidates_used = total;
+        self.result = Some(report.clone());
 
-        if self
-            .result
-            .as_ref()
-            .is_none_or(|best| report.placements.len() > best.placements.len())
-        {
-            self.result = Some(report.clone());
-        }
-
-        let done = matches!(report.status, Status::Complete | Status::InvalidInput)
+        // COMPLETE ilk bulunduğu anda tampon daha küçük olabilir. Aynı seed ile
+        // genişleyen bütçe artık yeni aday tüketmeyene kadar bir replay daha
+        // yap; böylece terminal yerleşim dilim boyutundan bağımsız kalır.
+        let done = matches!(report.status, Status::InvalidInput)
             || ran == 0
             || self.candidates_used >= self.config.max_total_candidates;
         if done {
-            if !matches!(report.status, Status::Complete | Status::InvalidInput) {
-                report = self.result.clone().unwrap_or(report);
-            }
-            report.stats.candidates_tried = self.candidates_used;
-            self.result = Some(report.clone());
             return self.done_step(ran, report);
         }
 
         StepReport {
             ran_candidates: ran,
             done: false,
-            placed_count: self
-                .result
-                .as_ref()
-                .map_or(0, |result| result.placements.len()),
+            placed_count: report.placements.len(),
             total_candidates: self.candidates_used,
             result: None,
         }

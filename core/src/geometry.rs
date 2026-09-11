@@ -25,6 +25,56 @@ pub fn shoelace_area(polygon: &[[f64; 2]]) -> f64 {
     twice_signed.abs() / 2.0
 }
 
+/// Basit poligon: bitisik olmayan kenarlar kesismez.
+#[must_use]
+pub fn is_simple_polygon(polygon: &Polygon) -> bool {
+    let n = polygon.len();
+    if n < 3 {
+        return false;
+    }
+    let segment = |i: usize| (polygon[i], polygon[(i + 1) % n]);
+    for a in 0..n {
+        let (p1, p2) = segment(a);
+        for b in (a + 2)..n {
+            if a == 0 && b == n - 1 {
+                continue;
+            }
+            let (q1, q2) = segment(b);
+            if segments_intersect(p1, p2, q1, q2) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn segments_intersect(p1: [f64; 2], p2: [f64; 2], q1: [f64; 2], q2: [f64; 2]) -> bool {
+    let d1 = cross(q1, q2, p1);
+    let d2 = cross(q1, q2, p2);
+    let d3 = cross(p1, p2, q1);
+    let d4 = cross(p1, p2, q2);
+    if ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
+        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+    {
+        return true;
+    }
+    d1.abs() <= LINEAR_EPSILON_MM && on_segment(q1, q2, p1)
+        || d2.abs() <= LINEAR_EPSILON_MM && on_segment(q1, q2, p2)
+        || d3.abs() <= LINEAR_EPSILON_MM && on_segment(p1, p2, q1)
+        || d4.abs() <= LINEAR_EPSILON_MM && on_segment(p1, p2, q2)
+}
+
+fn cross(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+}
+
+fn on_segment(a: [f64; 2], b: [f64; 2], p: [f64; 2]) -> bool {
+    p[0] >= a[0].min(b[0]) - LINEAR_EPSILON_MM
+        && p[0] <= a[0].max(b[0]) + LINEAR_EPSILON_MM
+        && p[1] >= a[1].min(b[1]) - LINEAR_EPSILON_MM
+        && p[1] <= a[1].max(b[1]) + LINEAR_EPSILON_MM
+}
+
 /// Footprint parçalarının alan ağırlıklı merkez noktası (MVP-2 plan P1).
 /// Parça merkezi imzalı shoelace formülüyle hesaplanır; ağırlık mutlak alan.
 #[must_use]

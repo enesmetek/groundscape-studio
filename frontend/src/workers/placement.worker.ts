@@ -40,7 +40,9 @@ self.onmessage = async ({ data }: MessageEvent<UiMessage>) => {
           message.products.map((p) => ({
             id: p.id,
             bytes: new Uint8Array(p.bytes),
-            placementRole: (p as { placementRole?: string }).placementRole,
+            placementRole: p.placementRole,
+            tags: p.tags,
+            ageGroup: p.ageGroup,
           })),
         )
         post({ type: 'READY', ready: ready as never }, message.requestId)
@@ -92,7 +94,7 @@ self.onmessage = async ({ data }: MessageEvent<UiMessage>) => {
         }
       } catch (error) {
         post(
-          { type: 'ERROR', error: { code: 'INTERNAL_ERROR', phase: 'search', productId: null, description: String(error) } },
+          { type: 'ERROR', error: toApiError(error, 'INTERNAL_ERROR', 'search') },
           message.requestId,
         )
       }

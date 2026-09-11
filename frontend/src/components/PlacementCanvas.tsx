@@ -32,7 +32,12 @@ function PlacementCanvas({ ready, result }: Props) {
           const deg = (pose.rotationRad * 180) / Math.PI
           const isAnchor = product.placementRole === 'anchor'
           return (
-            <g key={productId} transform={`translate(${pose.xMm} ${pose.yMm}) rotate(${deg})`}>
+            <g
+              key={productId}
+              data-product-id={productId}
+              data-placement-role={product.placementRole}
+              transform={`translate(${pose.xMm} ${pose.yMm}) rotate(${deg})`}
+            >
               <polygon
                 points={product.safetyZone.map(([x, y]) => `${x},${y}`).join(' ')}
                 fill="#4c9f70"

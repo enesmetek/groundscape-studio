@@ -61,6 +61,36 @@ impl Default for LayoutObjective {
     }
 }
 
+impl LayoutObjective {
+    /// Dis kaynaklardan gelen skor profilinin guvenli ve sonlu oldugunu
+    /// dogrular. Faz 1 yalnizca 1x1..3x3 grid destekler.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        let weights = [
+            self.weights.anchor,
+            self.weights.balance,
+            self.weights.distribution,
+            self.weights.spacing,
+            self.weights.orientation,
+        ];
+        if !(1..=3).contains(&self.grid) {
+            return Err("grid must be between 1 and 3");
+        }
+        if weights.iter().any(|w| !w.is_finite() || *w < 0.0) {
+            return Err("weights must be finite and non-negative");
+        }
+        if !self.anchor_region_ratio.is_finite() || !(0.0..=0.5).contains(&self.anchor_region_ratio)
+        {
+            return Err("anchorRegionRatio must be between 0 and 0.5");
+        }
+        if !self.spacing_target_ratio.is_finite()
+            || !(0.0..=1.0).contains(&self.spacing_target_ratio)
+        {
+            return Err("spacingTargetRatio must be between 0 and 1");
+        }
+        Ok(())
+    }
+}
+
 /// Skorlanmış yerleşmiş ürün: dünya footprint merkezi, footprint alanı ve
 /// etkin rol. `placed` listesi mevcut arama durumundan türetilir; ayrı
 /// durum saklanmaz (plan P2).
@@ -73,10 +103,10 @@ pub struct ScoredItem {
 
 impl ScoredItem {
     /// Ürün pozundan skorlanmış öğe üretir. `auto` rolde ürün, ürün setindeki
-    /// en büyük footprint'e sahipse anchor gibi puanlanır (plan P2); açıkça
+    /// ikinci en büyükten %1'den fazla büyükse anchor gibi puanlanır (plan P2); açıkça
     /// verilen rolde geometri çıkarımı yapılmaz. `second_largest_footprint_area_mm2`
     /// ürün setindeki ikinci en büyük footprint alanıdır (tek ürün setinde 0):
-    /// benzer boyutlu setlerde (eşitlik) sahte ana ürün seçilmez.
+    /// benzer boyutlu setlerde sahte ana ürün seçilmez.
     #[must_use]
     pub fn new(
         pose: Pose,
@@ -108,12 +138,13 @@ pub fn world_footprint_center(pose: Pose, centroid_local: [f64; 2]) -> [f64; 2] 
     ]
 }
 
-/// Etkin rol: `auto` yalnızca ürün setinin diğer tüm ürünlerinden katı olarak
-/// büyük footprint alanına sahipse anchor sayılır (benzersiz maksimum —
-/// benzer boyutlu setlerde sahte ana ürün seçilmez).
+/// Etkin rol: `auto` yalnızca ürün setinin ikinci en büyük footprint'inden
+/// %1'den fazla büyükse anchor sayılır; benzer boyutlu setlerde sahte ana ürün
+/// seçilmez.
 #[must_use]
 pub fn effective_role(role: PlacementRole, area: f64, second_largest_area: f64) -> PlacementRole {
-    if role == PlacementRole::Auto && area > second_largest_area {
+    // %1'den kucuk farklar DXF/sayisal gurultu sayilir; sahte anchor uretmez.
+    if role == PlacementRole::Auto && area > second_largest_area * 1.01 {
         PlacementRole::Anchor
     } else {
         role
@@ -163,16 +194,22 @@ fn e_anchor(placed: &[ScoredItem], objective: &LayoutObjective) -> f64 {
     let half = objective.anchor_region_ratio * AREA_SIZE_MM;
     let center = AREA_SIZE_MM / 2.0;
     let mut total = 0.0;
+    let mut count = 0;
     for item in placed {
         if item.role != PlacementRole::Anchor {
             continue;
         }
+        count += 1;
         let dx = (item.center[0] - center).abs() - half;
         let dy = (item.center[1] - center).abs() - half;
         let outside = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt();
         total += outside / AREA_SIZE_MM;
     }
-    total
+    if count == 0 {
+        0.0
+    } else {
+        total / f64::from(count)
+    }
 }
 
 /// `E_balance`: alan ağırlıklı merkezin alan merkezine normalize uzaklığı.
@@ -195,7 +232,9 @@ fn e_balance(placed: &[ScoredItem]) -> f64 {
 /// ezerdi. Ürün, alanına eşit kare olarak hücrelere bölünür (ucuz ve
 /// deterministik yaklaşım).
 fn e_distribution(placed: &[ScoredItem], objective: &LayoutObjective) -> f64 {
-    let grid = objective.grid.max(1);
+    // Public score_layout dogrudan da cagrilabilir; gecersiz objective arama
+    // sinirinda reddedilir, burada panic/bellek tasmasi engellenir.
+    let grid = objective.grid.clamp(1, 3);
     let cell = AREA_SIZE_MM / f64::from(grid);
     let mut shares = vec![0.0_f64; (grid * grid) as usize];
     for item in placed {
@@ -240,16 +279,23 @@ fn e_distribution(placed: &[ScoredItem], objective: &LayoutObjective) -> f64 {
 fn e_spacing(placed: &[ScoredItem], objective: &LayoutObjective) -> f64 {
     let target = objective.spacing_target_ratio * AREA_SIZE_MM;
     let mut total = 0.0;
+    let mut pairs = 0;
     for i in 0..placed.len() {
         for j in (i + 1)..placed.len() {
             let other = &placed[j];
-            let dx = placed[i].center[0] - other.center[0];
-            let dy = placed[i].center[1] - other.center[1];
-            let dist = (dx * dx + dy * dy).sqrt();
-            total += (target - dist).max(0.0) / AREA_SIZE_MM;
+            let half_sum = (placed[i].area.sqrt() + other.area.sqrt()) / 2.0;
+            let gap_x = ((placed[i].center[0] - other.center[0]).abs() - half_sum).max(0.0);
+            let gap_y = ((placed[i].center[1] - other.center[1]).abs() - half_sum).max(0.0);
+            let footprint_gap = (gap_x * gap_x + gap_y * gap_y).sqrt();
+            total += (target - footprint_gap).max(0.0) / AREA_SIZE_MM;
+            pairs += 1;
         }
     }
-    total
+    if pairs == 0 {
+        0.0
+    } else {
+        total / f64::from(pairs)
+    }
 }
 
 /// `E_orientation`: yalnızca rol/fixture tanımladığında aktif olur (plan P2).

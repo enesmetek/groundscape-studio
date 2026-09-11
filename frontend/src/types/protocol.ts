@@ -31,6 +31,8 @@ export type ReadyPayload = {
     safetyAreaMm2: number
     /** Rust ProductPayload her zaman gönderir; UI rolleri buradan okur. */
     placementRole: PlacementRole
+    tags: string[]
+    ageGroup: string | null
     /** Rust ProductPayload gönderir; UI şimdilik okumuyor. */
     footprintAreaMm2?: number
     footprintCentroidLocal?: [number, number]
@@ -86,7 +88,13 @@ export type InitMessage = {
   type: 'INIT'
   schemaVersion: 1
   requestId: string
-  products: { id: string; bytes: ArrayBuffer }[]
+  products: {
+    id: string
+    bytes: ArrayBuffer
+    placementRole?: PlacementRole
+    tags?: string[]
+    ageGroup?: string
+  }[]
 }
 export type PlaceMessage = {
   type: 'PLACE'

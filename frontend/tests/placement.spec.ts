@@ -33,6 +33,27 @@ test('üç ürün yüklenir, yerleştirilir ve SVG ile çizilir', async ({ page 
   const canvas = page.getByRole('img', { name: 'Yerleşim alanı' })
   await expect(canvas).toBeVisible()
   expect(await canvas.locator('g g').count()).toBe(3)
+  const anchor = canvas.locator('[data-product-id="product-1"]')
+  await expect(anchor).toHaveAttribute('data-placement-role', 'anchor')
+  await expect(anchor.locator(':scope > polygon').first()).toHaveAttribute('stroke', '#d96b43')
+  await expect(anchor.locator(':scope > polygon').first()).not.toHaveAttribute('stroke-dasharray')
+  const anchorTransform = await anchor.getAttribute('transform')
+  const anchorPosition = anchorTransform?.match(/translate\(([-\d.]+) ([-\d.]+)\)/)
+  expect(anchorPosition).not.toBeNull()
+  expect(Number(anchorPosition?.[1])).toBeGreaterThanOrEqual(1250)
+  expect(Number(anchorPosition?.[1])).toBeLessThanOrEqual(3750)
+  expect(Number(anchorPosition?.[2])).toBeGreaterThanOrEqual(1250)
+  expect(Number(anchorPosition?.[2])).toBeLessThanOrEqual(3750)
+
+  const peripheral = canvas.locator('[data-product-id="product-3"]')
+  const peripheralTransform = await peripheral.getAttribute('transform')
+  const peripheralPosition = peripheralTransform?.match(/translate\(([-\d.]+) ([-\d.]+)\)/)
+  expect(peripheralPosition).not.toBeNull()
+  const peripheralX = Number(peripheralPosition?.[1])
+  const peripheralY = Number(peripheralPosition?.[2])
+  expect(
+    peripheralX < 1250 || peripheralX > 3750 || peripheralY < 1250 || peripheralY > 3750,
+  ).toBe(true)
 
   await page.setViewportSize({ width: 360, height: 740 })
   const box = await canvas.boundingBox()

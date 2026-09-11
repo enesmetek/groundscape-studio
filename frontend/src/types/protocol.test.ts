@@ -10,4 +10,14 @@ describe('toApiError', () => {
       description: 'yüklenemedi',
     })
   })
+
+  it('WASM yapılandırılmış hata kodunu korur', () => {
+    const error = {
+      code: 'INVALID_INPUT',
+      phase: 'search',
+      productId: null,
+      description: 'grid must be between 1 and 3',
+    }
+    expect(toApiError(error, 'INTERNAL_ERROR', 'search')).toEqual(error)
+  })
 })

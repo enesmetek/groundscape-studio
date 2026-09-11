@@ -11,9 +11,7 @@ use crate::area::{AREA_MM2, AREA_SIZE_MM};
 use crate::geometry::{LINEAR_EPSILON_MM, Polygon, transformed_bbox};
 use crate::jagua_adapter::PlacementSession;
 use crate::model::{Placement, PlacementRole, Pose, ProductGeometry};
-use crate::scoring::{
-    LayoutObjective, ScoredItem, effective_role, score_layout, score_layout_delta,
-};
+use crate::scoring::{LayoutObjective, ScoredItem, effective_role, score_layout};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +35,26 @@ impl Default for SearchConfig {
             max_restarts: 3,
             max_total_candidates: 200_000,
         }
+    }
+}
+
+impl SearchConfig {
+    /// Dis kaynaktan gelen arama profilinin tek Worker adimini kontrolsuz
+    /// buyutmesini engeller. Sifir toplam butce kontrollu terminal sonucudur.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.candidate_buffer_size == 0 || self.candidate_buffer_size > 1024 {
+            return Err("candidateBufferSize must be between 1 and 1024");
+        }
+        if self.max_restarts > 100 {
+            return Err("maxRestarts must not exceed 100");
+        }
+        if self.global_samples_per_item > 1_000_000
+            || self.local_samples_per_item > 1_000_000
+            || self.max_total_candidates > 1_000_000
+        {
+            return Err("candidate limits must not exceed 1000000");
+        }
+        Ok(())
     }
 }
 
@@ -79,6 +97,32 @@ pub fn search_placement(
 ) -> PlacementResult {
     assert_eq!(session.placements().len(), products.len());
 
+    if config.validate().is_err() {
+        return PlacementResult {
+            status: Status::InvalidInput,
+            placements: vec![],
+            unplaced: products.iter().map(|p| p.id.clone()).collect(),
+            reason_code: "INVALID_SEARCH_CONFIG",
+            stats: SearchStats {
+                candidates_tried: 0,
+                restarts: 0,
+            },
+        };
+    }
+
+    if objective.validate().is_err() {
+        return PlacementResult {
+            status: Status::InvalidInput,
+            placements: vec![],
+            unplaced: products.iter().map(|p| p.id.clone()).collect(),
+            reason_code: "INVALID_LAYOUT_OBJECTIVE",
+            stats: SearchStats {
+                candidates_tried: 0,
+                restarts: 0,
+            },
+        };
+    }
+
     // Gerekli alan koşulu: ispatlanabilir ret, arama başlatılmaz (plan §11.1).
     let total_area: f64 = products.iter().map(|p| p.safety_area_mm2.abs()).sum();
     if total_area > AREA_MM2 {
@@ -96,8 +140,8 @@ pub fn search_placement(
 
     let order = order_by_safety_area(products);
     let n = products.len();
-    // İkinci en büyük footprint: benzer boyutlu setlerde eşitlik sahte
-    // ana ürün seçmez (MVP-2 plan P2 — benzersiz maksimum anchor'dır).
+    // İkinci en büyük footprint: benzer boyutlu setlerde küçük alan farkı
+    // sahte ana ürün seçmez (MVP-2 plan P2).
     let mut areas: Vec<f64> = products
         .iter()
         .map(|p| p.footprint_area_mm2.abs())
@@ -162,11 +206,18 @@ pub fn search_placement(
     } else {
         Status::Partial
     };
+    let reason_code = if budget.total == 0 && config.max_total_candidates > 0 {
+        "SEARCH_SPACE_EXHAUSTED"
+    } else {
+        // Toplam tavana ulasilmasa da item/restart ornek kotalari arama
+        // butcesinin parcasidir; geometrik imkansizlik kaniti degildir.
+        "SEARCH_BUDGET_EXHAUSTED"
+    };
     PlacementResult {
         status,
         placements,
         unplaced,
-        reason_code: "SEARCH_BUDGET_EXHAUSTED",
+        reason_code,
         stats: SearchStats {
             candidates_tried: budget.total,
             restarts: last_restart,
@@ -276,7 +327,7 @@ fn try_depth(
         return crate::validation::validate_result(products, &placements).valid;
     }
     let item = order[depth];
-    let mut candidates = generate_candidates(
+    let candidates = generate_candidates(
         session,
         item,
         &products[item],
@@ -289,9 +340,6 @@ fn try_depth(
 
     // Skor sıralaması (MVP-2 plan P4): bottom-left tie-break kaldırıldı.
     // Düşük skor önce; `placed`, state + products'tan bu derinlikte türetilir.
-    // ponytail: score_layout_delta her aday için baseline'ı yeniden hesaplar;
-    // ürün sayısı büyürse tek baseline hesabına indir (MVP-2 kapsamında 3
-    // ürün için acil değil).
     let placed = placed_scored_items(state, products, second_largest_footprint);
     let candidate_item = |pose: &Pose| {
         let product = &products[item];
@@ -303,17 +351,18 @@ fn try_depth(
             second_largest_footprint,
         )
     };
-    candidates.sort_by(|a, b| {
-        score_layout_delta(candidate_item(a), &placed, objective)
-            .partial_cmp(&score_layout_delta(candidate_item(b), &placed, objective))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let mut candidates: Vec<(Pose, f64)> = candidates
+        .into_iter()
+        .map(|pose| {
+            let mut layout = placed.clone();
+            layout.push(candidate_item(&pose));
+            let score = score_layout(&layout, objective);
+            (pose, score)
+        })
+        .collect();
+    candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
 
-    for pose in candidates {
-        if budget.total >= budget.max {
-            break;
-        }
-        budget.total += 1;
+    for (pose, _) in candidates {
         // Bu ürünün yerleşiminden önceki duruma dön (geri izlama yeniden kurulumu).
         session.restart_from(snapshot_before_depth);
         if session.try_place(item, pose) {
@@ -458,6 +507,16 @@ fn generate_candidates(
         }
     }
 
+    // Butce ortasinda kalan tampon skorla siralanirsa dilim boyutu aday
+    // sirasini degistirir. Yalniz dolmus veya kendi ornek kotasini tuketmis
+    // tamponlar aramaya katilir; kismi tampon sonraki replay'de yeniden kurulur.
+    if budget.total >= budget.max
+        && candidates.len() < config.candidate_buffer_size
+        && attempts < config.global_samples_per_item
+    {
+        return Vec::new();
+    }
+
     // Yerel havuz: kalan slotlar için küçülen pertürbasyonlar.
     if let Some(&base) = candidates.last() {
         let mut local_left = config.local_samples_per_item;
@@ -473,6 +532,12 @@ fn generate_candidates(
             &mut candidates,
             config.candidate_buffer_size,
         );
+        if budget.total >= budget.max
+            && local_left > 0
+            && candidates.len() < config.candidate_buffer_size
+        {
+            return Vec::new();
+        }
     }
     candidates
 }
@@ -499,10 +564,7 @@ fn perturb_around(
 ) {
     // Ölçek: ürün boyutunun oranı; kalan örnek sayısına göre küçülür
     // (MVP-2 plan P3 düzeltmesi — pertürbasyon monoton küçülür).
-    while *local_left > 0
-        && budget.total < budget.max
-        && candidates.len() + 1 < candidate_buffer_size
-    {
+    while *local_left > 0 && budget.total < budget.max && candidates.len() < candidate_buffer_size {
         *local_left -= 1;
         budget.total += 1;
         let shrink = perturb_scale(*local_left, local_total);
