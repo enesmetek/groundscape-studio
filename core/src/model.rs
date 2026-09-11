@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::geometry::Polygon;
 
 /// Poz sözleşmesi: mm ve radyan. Derece dönüşümü yalnızca SVG metninde yapılır.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Pose {
     pub x_mm: f64,
     pub y_mm: f64,

@@ -20,6 +20,7 @@ pub use geometry::{
     AREA_EPSILON_MM2, LINEAR_EPSILON_MM, Polygon, bbox, canonicalize, shoelace_area,
     transformed_bbox, translated,
 };
+pub use jagua_adapter::PlacementSession;
 pub use model::{Placement, Pose, ProductGeometry};
 
 pub const TINY_DXF: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n100\nAcDbEntity\n8\n0\n100\nAcDbPolyline\n90\n4\n70\n1\n10\n0\n20\n0\n10\n100\n20\n0\n10\n100\n20\n100\n10\n0\n20\n100\n0\nENDSEC\n0\nEOF\n";

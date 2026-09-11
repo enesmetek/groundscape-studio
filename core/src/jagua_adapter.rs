@@ -7,9 +7,12 @@ use jagua_rs::geometry::geo_enums::RotationRange;
 use jagua_rs::geometry::primitives::{Point, Rect, SPolygon};
 use jagua_rs::geometry::shape_modification::{ShapeModifyConfig, ShapeModifyMode};
 use jagua_rs::geometry::{DTransformation, OriginalShape};
-use jagua_rs::probs::bpp::entities::{BPInstance, BPLayoutType, BPPlacement, BPProblem, Bin};
+use jagua_rs::probs::bpp::entities::{
+    BPInstance, BPLayoutType, BPPlacement, BPProblem, Bin, LayKey,
+};
 
 use crate::area::AREA_SIZE_MM;
+use crate::error::ImportError;
 use crate::geometry::Polygon;
 
 /// jagua f32 geometri kullanır; f64 alan f32'ye adaptör sınırında çevrilir.
@@ -112,6 +115,142 @@ pub(crate) fn placement_proof(
         continuous_rotation: item.allowed_rotation == RotationRange::Continuous,
         feasible,
     }
+}
+
+/// Tek kutulu yerleşim oturumu — plan §10. Bir adet 5000×5000 container,
+/// ürün başına talep 1, collision geometrisi safety zone. Ürün kimliği ↔ item
+/// indeks eşlemesi kararlıdır; büyükten küçüğe sıralama bu vektörü bozmaz
+/// (sıralama ayrı yerleştirme sırası vektöründe yapılır, Aşama E).
+pub struct PlacementSession {
+    problem: BPProblem,
+    /// item indeksi → ürün kimliği
+    product_ids: Vec<String>,
+    /// item indeksi → yerleşmiş poz (None: henüz yerleşmedi)
+    placed: Vec<Option<crate::model::Pose>>,
+    open_layout: Option<LayKey>,
+    /// İlk yerleşimden önce sorgular için boş layout.
+    empty_layout: Layout,
+}
+
+impl PlacementSession {
+    pub fn new(products: &[crate::model::ProductGeometry]) -> Result<Self, ImportError> {
+        if products.is_empty() {
+            return Err(ImportError::InvalidPolygon(
+                "session needs at least one product",
+            ));
+        }
+        let mut product_ids = Vec::with_capacity(products.len());
+        let mut items = Vec::with_capacity(products.len());
+        for product in products {
+            if product.safety_zone.len() < 3 {
+                return Err(ImportError::InvalidPolygon("safety zone needs 3+ vertices"));
+            }
+            product_ids.push(product.id.clone());
+            items.push((
+                item(items.len(), shape(&product.safety_zone)),
+                1, // talep: ürün başına bir
+            ));
+        }
+        let empty_layout = Layout::new(container());
+        let problem = BPProblem::new(BPInstance::new(items, vec![Bin::new(container(), 1, 1)]));
+
+        Ok(Self {
+            product_ids,
+            placed: vec![None; products.len()],
+            open_layout: None,
+            empty_layout,
+            problem,
+        })
+    }
+
+    /// item indeksi → ürün kimliği.
+    pub fn product_id(&self, item_index: usize) -> &str {
+        &self.product_ids[item_index]
+    }
+
+    /// Ürün kimliği → item indeksi (birebir eşleme).
+    pub fn item_index_of(&self, product_id: &str) -> Option<usize> {
+        self.product_ids.iter().position(|id| id == product_id)
+    }
+
+    /// Adayın tam poligon ve alan sınırı çakışma sorgusu (yerleştirmez).
+    pub fn query_fit(&self, item_index: usize, pose: crate::model::Pose) -> bool {
+        candidate_fits(
+            self.current_layout(),
+            self.problem.instance.item(item_index),
+            d_transformation(pose),
+        )
+    }
+
+    /// Geçerli adayı aynı yerleşime ekler. İkinci kutu ASLA açılmaz:
+    /// çalışma zamanı kontrolü (release testi: `unfit_item_never_opens_a_second_bin`).
+    pub fn try_place(&mut self, item_index: usize, pose: crate::model::Pose) -> bool {
+        assert!(item_index < self.product_ids.len());
+        if self.placed[item_index].is_some() || !self.query_fit(item_index, pose) {
+            return false;
+        }
+        let layout_id = match self.open_layout {
+            Some(key) => BPLayoutType::Open(key),
+            None => BPLayoutType::Closed { bin_id: 0 },
+        };
+        let (lay_key, _) = self.problem.place_item(BPPlacement {
+            layout_id,
+            item_id: item_index,
+            d_transf: d_transformation(pose),
+        });
+        match self.open_layout {
+            None => self.open_layout = Some(lay_key),
+            Some(key) => assert_eq!(lay_key, key, "second bin opened"),
+        }
+        self.placed[item_index] = Some(pose);
+        true
+    }
+
+    /// Yerleşmiş pozlar, item indeksi sırasında.
+    pub fn placements(&self) -> &[Option<crate::model::Pose>] {
+        &self.placed
+    }
+
+    /// Kullanılan kutu sayısı: her zaman 1.
+    pub fn bins_used(&self) -> usize {
+        self.problem.bin_used_qtys().sum()
+    }
+
+    /// Tek kutu kuralının çalışma zamanı kontrolü.
+    pub fn layout_count(&self) -> usize {
+        self.problem.layouts.len()
+    }
+
+    /// Geri izleme: seçilmiş önceki pozlardan problem durumunu yeniden kurar
+    /// (plan §10 — boş layout anahtarları yanlışlıkla yeniden kullanılmaz).
+    pub fn restart_from(&mut self, placements: &[Option<crate::model::Pose>]) {
+        assert_eq!(placements.len(), self.product_ids.len());
+        self.problem = BPProblem::new(self.problem.instance.clone());
+        self.open_layout = None;
+        self.placed = vec![None; self.product_ids.len()];
+        for (index, pose) in placements.iter().enumerate() {
+            if let Some(pose) = *pose {
+                assert!(
+                    self.try_place(index, pose),
+                    "restored placement no longer fits"
+                );
+            }
+        }
+    }
+
+    fn current_layout(&self) -> &Layout {
+        match self.open_layout {
+            Some(key) => &self.problem.layouts[key],
+            None => &self.empty_layout,
+        }
+    }
+}
+
+fn d_transformation(pose: crate::model::Pose) -> DTransformation {
+    DTransformation::new(
+        pose.rotation_rad as f32,
+        (pose.x_mm as f32, pose.y_mm as f32),
+    )
 }
 
 pub(crate) fn layout_proof(left: &Polygon, right: &Polygon) -> LayoutProof {
