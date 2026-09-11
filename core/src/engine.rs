@@ -11,6 +11,7 @@ use crate::dxf_import::import_product;
 use crate::error::ImportError;
 use crate::jagua_adapter::PlacementSession;
 use crate::model::ProductGeometry;
+use crate::scoring::LayoutObjective;
 use crate::search::{PlacementResult, SearchConfig, Status, search_placement};
 
 /// Motor durumu. Aday sayacı tüm adımları ve restartları kapsayan global
@@ -18,6 +19,7 @@ use crate::search::{PlacementResult, SearchConfig, Status, search_placement};
 pub struct Engine {
     products: Vec<ProductGeometry>,
     config: SearchConfig,
+    objective: LayoutObjective,
     seed: u64,
     session: Option<PlacementSession>,
     candidates_used: usize,
@@ -39,6 +41,7 @@ impl Engine {
         Self {
             products: Vec::new(),
             config: SearchConfig::default(),
+            objective: LayoutObjective::default(),
             seed: 0,
             session: None,
             candidates_used: 0,
@@ -55,6 +58,11 @@ impl Engine {
     /// Yüklenen ürünler; arayüz READY durumunda görselleştirir.
     pub fn products(&self) -> &[ProductGeometry] {
         &self.products
+    }
+
+    /// Skor hedefini değiştirir; sonraki aramada geçerli (plan P5 ayarı).
+    pub fn set_objective(&mut self, objective: LayoutObjective) {
+        self.objective = objective;
     }
 
     /// Arama oturumu açar; aday sayacı sıfırlanır.
@@ -113,7 +121,8 @@ impl Engine {
         config.local_samples_per_item = config.local_samples_per_item.min(per_item / 2);
         config.global_samples_per_item = config.global_samples_per_item.min(per_item);
         let seed = self.seed.wrapping_add(self.candidates_used as u64);
-        let mut report = search_placement(session, &self.products, &config, seed);
+        let objective = self.objective.clone();
+        let mut report = search_placement(session, &self.products, &config, &objective, seed);
         let ran = report.stats.candidates_tried.min(step);
         self.candidates_used += ran;
 

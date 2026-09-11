@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::area::{AREA_MM2, AREA_SIZE_MM};
 use crate::geometry::{LINEAR_EPSILON_MM, Polygon, transformed_bbox};
 use crate::jagua_adapter::PlacementSession;
-use crate::model::{Placement, Pose, ProductGeometry};
+use crate::model::{Placement, PlacementRole, Pose, ProductGeometry};
+use crate::scoring::{LayoutObjective, effective_role};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +72,7 @@ pub fn search_placement(
     session: &mut PlacementSession,
     products: &[ProductGeometry],
     config: &SearchConfig,
+    objective: &LayoutObjective,
     seed: u64,
 ) -> PlacementResult {
     assert_eq!(session.placements().len(), products.len());
@@ -92,6 +94,10 @@ pub fn search_placement(
 
     let order = order_by_safety_area(products);
     let n = products.len();
+    let largest_footprint = products
+        .iter()
+        .map(|p| p.footprint_area_mm2.abs())
+        .fold(0.0_f64, f64::max);
     // En derin ilerleyen durum saklanır: kısmi sonuç bundan raporlanır.
     let mut best = BestProgress {
         state: vec![None; n],
@@ -116,6 +122,8 @@ pub fn search_placement(
             &mut state,
             &snapshot,
             products,
+            largest_footprint,
+            objective,
             config,
             &mut budget,
             &mut rng,
@@ -217,6 +225,8 @@ fn try_depth(
     state: &mut [Option<Pose>],
     snapshot_before_depth: &[Option<Pose>],
     products: &[ProductGeometry],
+    largest_footprint: f64,
+    objective: &LayoutObjective,
     config: &SearchConfig,
     budget: &mut Budget,
     rng: &mut StdRng,
@@ -229,7 +239,16 @@ fn try_depth(
         return crate::validation::validate_result(products, &placements).valid;
     }
     let item = order[depth];
-    let mut candidates = generate_candidates(session, item, &products[item], config, budget, rng);
+    let mut candidates = generate_candidates(
+        session,
+        item,
+        &products[item],
+        largest_footprint,
+        objective,
+        config,
+        budget,
+        rng,
+    );
 
     // Bottom-left benzeri tie-break: küçük x+y önce (plan §11.2).
     candidates.sort_by(|a, b| {
@@ -256,6 +275,8 @@ fn try_depth(
                 state,
                 &child_snapshot,
                 products,
+                largest_footprint,
+                objective,
                 config,
                 budget,
                 rng,
@@ -278,23 +299,38 @@ fn try_depth(
     false
 }
 
-/// Aday üretimi: 0/90/180/270 başlangıç açıları, sonra seed'li sürekli açı
-/// örnekleri; konumlar kenar/köşe hizalı ve iç bölge örneklemesi karışık;
-/// geçerli aday çevresinde küçülen pertürbasyonlar. Sıfır genişlikli aralıklar
-/// rastgele dağılıma verilmez. Sayaç sınır nedeniyle erken elenen denemeleri de
-/// kapsar (plan §11.2-11.3).
+/// Aday üretimi (MVP-2 plan P3): iki havuz.
+///
+/// Genel havuz — rol-farkındalıklı bölge örneklemesi: anchor/auto-büyük merkezi
+/// bölge çevresinden, peripheral köşe hizalı kenarlardan, diğerleri alanın
+/// farklı kesimlerinden. Tampon, çeşitlilik koşuluyla doldurulur: yeni aday
+/// mevcut adayların en yakınına en az `0.25·√safety_area` uzaklıkta olmalı —
+/// aynı konumun mm-varyasyonları tamponu dolduramaz.
+///
+/// Yerel havuz (`perturb_around`) yalnızca farklı bölge adayları denendikten
+/// sonra, tamponun kalan slotları için devreye girer; küçülen pertürbasyonla
+/// yerel iyileştirme yapar (plan §11.2).
+#[allow(clippy::too_many_arguments)]
 fn generate_candidates(
     session: &mut PlacementSession,
     item: usize,
     product: &ProductGeometry,
+    largest_footprint: f64,
+    objective: &LayoutObjective,
     config: &SearchConfig,
     budget: &mut Budget,
     rng: &mut StdRng,
 ) -> Vec<Pose> {
     let mut candidates: Vec<Pose> = Vec::new();
-    let mut local_left = config.local_samples_per_item;
     let scale = product.safety_area_mm2.abs().sqrt().max(1.0);
+    let diversity_min = 0.25 * scale;
+    let role = effective_role(
+        product.placement_role,
+        product.footprint_area_mm2.abs(),
+        largest_footprint,
+    );
 
+    // Genel havuz: bölgesel örneklem + çeşitlilik koşulu.
     let mut attempts = 0usize;
     while candidates.len() < config.candidate_buffer_size
         && attempts < config.global_samples_per_item
@@ -312,30 +348,83 @@ fn generate_candidates(
         let Some((x_range, y_range)) = position_ranges(&product.safety_zone, angle) else {
             continue; // ters aralık: bu açı geçersiz
         };
-        let position = if attempts.is_multiple_of(2) {
-            // kenar/köşe hizalı başlangıç
-            (x_range.0, y_range.0)
-        } else {
-            (sample_range(x_range, rng), sample_range(y_range, rng))
+        let position = match role {
+            PlacementRole::Anchor => {
+                // Merkezi bölge çevresinden örnek; geçerli aralığa kırpılır.
+                let half = objective.anchor_region_ratio * AREA_SIZE_MM;
+                let center = AREA_SIZE_MM / 2.0;
+                (
+                    sample_range(
+                        (
+                            (center - half).max(x_range.0),
+                            (center + half).min(x_range.1),
+                        ),
+                        rng,
+                    ),
+                    sample_range(
+                        (
+                            (center - half).max(y_range.0),
+                            (center + half).min(y_range.1),
+                        ),
+                        rng,
+                    ),
+                )
+            }
+            PlacementRole::Peripheral => {
+                // Farklı kenar/köşelerden hizalı başlangıçlar (döngüsel).
+                let corner = attempts % 4;
+                (
+                    if corner & 1 == 0 {
+                        x_range.0
+                    } else {
+                        x_range.1
+                    },
+                    if corner & 2 == 0 {
+                        y_range.0
+                    } else {
+                        y_range.1
+                    },
+                )
+            }
+            _ => {
+                if attempts.is_multiple_of(2) {
+                    // kenar/köşe hizalı başlangıç
+                    (x_range.0, y_range.0)
+                } else {
+                    (sample_range(x_range, rng), sample_range(y_range, rng))
+                }
+            }
         };
         let pose = Pose::new(position.0, position.1, angle);
-        if session.query_fit(item, pose) {
-            // Küçülen pertürbasyonlarla yerel iyileştirme (bütçe dahilinde).
-            perturb_around(
-                session,
-                item,
-                pose,
-                scale,
-                &mut local_left,
-                budget,
-                rng,
-                &mut candidates,
-                config.candidate_buffer_size,
-            );
+        if session.query_fit(item, pose) && is_diverse(pose, &candidates, diversity_min) {
             candidates.push(pose);
         }
     }
+
+    // Yerel havuz: kalan slotlar için küçülen pertürbasyonlar.
+    if let Some(&base) = candidates.last() {
+        let mut local_left = config.local_samples_per_item;
+        perturb_around(
+            session,
+            item,
+            base,
+            scale,
+            &mut local_left,
+            config.local_samples_per_item,
+            budget,
+            rng,
+            &mut candidates,
+            config.candidate_buffer_size,
+        );
+    }
     candidates
+}
+
+/// Çeşitlilik koşulu: aday, mevcut her adayın konumuna eşikten uzak olmalı.
+fn is_diverse(pose: Pose, candidates: &[Pose], threshold: f64) -> bool {
+    candidates.iter().all(|c| {
+        (c.x_mm - pose.x_mm).powi(2) + (c.y_mm - pose.y_mm).powi(2) >= threshold * threshold
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -345,22 +434,21 @@ fn perturb_around(
     base: Pose,
     scale: f64,
     local_left: &mut usize,
+    local_total: usize,
     budget: &mut Budget,
     rng: &mut StdRng,
     candidates: &mut Vec<Pose>,
     candidate_buffer_size: usize,
 ) {
-    // Ölçek: ürün boyutunun oranı; her denemede küçülür (plan §11.2).
+    // Ölçek: ürün boyutunun oranı; kalan örnek sayısına göre küçülür
+    // (MVP-2 plan P3 düzeltmesi — pertürbasyon monoton küçülür).
     while *local_left > 0
         && budget.total < budget.max
         && candidates.len() + 1 < candidate_buffer_size
     {
         *local_left -= 1;
         budget.total += 1;
-        let shrink = 1.0
-            / f64::from(u32::try_from(*local_left).unwrap_or(1))
-                .max(1.0)
-                .sqrt();
+        let shrink = perturb_scale(*local_left, local_total);
         let dxy = scale * 0.25 * shrink;
         let dangle = 0.1 * shrink;
         let pose = Pose::new(
@@ -372,6 +460,12 @@ fn perturb_around(
             candidates.push(pose);
         }
     }
+}
+
+/// Pertürbasyon ölçeği: kalan yerel örnek sayısı azaldıkça küçülür.
+/// Eski `1/√local_left` formu ters çalışıyordu (MVP-2 plan P3).
+fn perturb_scale(local_left: usize, local_total: usize) -> f64 {
+    (local_left as f64 / local_total.max(1) as f64).sqrt()
 }
 
 /// Bir açı için döndürülmüş safety poligonunun sınırlarından geçerli çeviri
@@ -392,5 +486,145 @@ fn sample_range((lo, hi): (f64, f64), rng: &mut StdRng) -> f64 {
         lo // sıfır genişlikli aralık rastgele dağılıma verilmez
     } else {
         rng.random_range(lo..hi)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::PlacementRole;
+
+    fn product(id: &str, size: f64, role: PlacementRole) -> ProductGeometry {
+        let safety: Polygon = vec![[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
+        let half = size / 2.0;
+        let footprint: Polygon = vec![
+            [half, half],
+            [size - 10.0, half],
+            [size - 10.0, size - 10.0],
+            [half, size - 10.0],
+        ];
+        ProductGeometry {
+            id: id.to_owned(),
+            footprint_polygons: vec![footprint],
+            safety_zone: safety,
+            safety_area_mm2: size * size,
+            footprint_area_mm2: (size - 10.0 - half) * (size - 10.0 - half),
+            footprint_centroid_local: [0.0, 0.0],
+            placement_role: role,
+            tags: Vec::new(),
+            age_group: None,
+            source_metadata: None,
+        }
+    }
+
+    #[test]
+    fn perturb_scale_decreases_monotonically() {
+        let total = 10;
+        let mut prev = f64::INFINITY;
+        for left in (1..=total).rev() {
+            let s = perturb_scale(left, total);
+            assert!(s < prev, "scale not decreasing: left={left} s={s}");
+            prev = s;
+        }
+    }
+
+    #[test]
+    fn anchor_candidates_sample_the_center_region() {
+        let products = [product("big", 1200.0, PlacementRole::Anchor)];
+        let mut session = PlacementSession::new(&products).unwrap();
+        let config = SearchConfig::default();
+        let objective = LayoutObjective::default();
+        let mut budget = Budget::new(config.max_total_candidates);
+        let mut rng = StdRng::seed_from_u64(11);
+
+        let cands = generate_candidates(
+            &mut session,
+            0,
+            &products[0],
+            1_440_000.0,
+            &objective,
+            &config,
+            &mut budget,
+            &mut rng,
+        );
+        assert!(!cands.is_empty());
+        let half = objective.anchor_region_ratio * AREA_SIZE_MM;
+        for pose in &cands {
+            // Merkezi bölge: alan merkezinden ±0.25·5000.
+            assert!(
+                (pose.x_mm - AREA_SIZE_MM / 2.0).abs() <= half + 1e-6,
+                "x={} outside center region",
+                pose.x_mm
+            );
+            assert!(
+                (pose.y_mm - AREA_SIZE_MM / 2.0).abs() <= half + 1e-6,
+                "y={} outside center region",
+                pose.y_mm
+            );
+        }
+    }
+
+    #[test]
+    fn peripheral_candidates_hit_different_corners() {
+        let products = [product("edge", 800.0, PlacementRole::Peripheral)];
+        let mut session = PlacementSession::new(&products).unwrap();
+        let config = SearchConfig::default();
+        let objective = LayoutObjective::default();
+        let mut budget = Budget::new(config.max_total_candidates);
+        let mut rng = StdRng::seed_from_u64(13);
+
+        let cands = generate_candidates(
+            &mut session,
+            0,
+            &products[0],
+            100.0,
+            &objective,
+            &config,
+            &mut budget,
+            &mut rng,
+        );
+        // Kenar/köşe hizalı: adayların en az yarısı alan kenarına dayalı.
+        let on_edge = cands
+            .iter()
+            .filter(|p| {
+                p.x_mm < 1e-6
+                    || p.y_mm < 1e-6
+                    || p.x_mm > AREA_SIZE_MM - 800.0 - 1e-6
+                    || p.y_mm > AREA_SIZE_MM - 800.0 - 1e-6
+            })
+            .count();
+        assert!(on_edge >= cands.len() / 2, "on_edge={on_edge}");
+    }
+
+    #[test]
+    fn buffer_respects_diversity_threshold() {
+        // local havuz kapalı: tüm adaylar genel havuzdan, çeşitlilik koşullu.
+        let products = [product("mid", 900.0, PlacementRole::Distributed)];
+        let mut session = PlacementSession::new(&products).unwrap();
+        let config = SearchConfig {
+            local_samples_per_item: 0,
+            ..SearchConfig::default()
+        };
+        let objective = LayoutObjective::default();
+        let mut budget = Budget::new(config.max_total_candidates);
+        let mut rng = StdRng::seed_from_u64(17);
+
+        let cands = generate_candidates(
+            &mut session,
+            0,
+            &products[0],
+            100.0,
+            &objective,
+            &config,
+            &mut budget,
+            &mut rng,
+        );
+        let threshold = 0.25 * 900.0;
+        for (i, a) in cands.iter().enumerate() {
+            for b in cands.iter().skip(i + 1) {
+                let d = ((a.x_mm - b.x_mm).powi(2) + (a.y_mm - b.y_mm).powi(2)).sqrt();
+                assert!(d >= threshold - 1e-6, "too close: {a:?} vs {b:?}");
+            }
+        }
     }
 }

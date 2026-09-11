@@ -1,6 +1,6 @@
 use groundscape_core::{
-    PlacementRole, PlacementSession, Polygon, ProductGeometry, SearchConfig, Status,
-    search_placement,
+    LayoutObjective, PlacementRole, PlacementSession, Polygon, ProductGeometry, SearchConfig,
+    Status, search_placement,
 };
 
 fn product(id: &str, size: f64) -> ProductGeometry {
@@ -64,7 +64,13 @@ fn three_products_search_completes_in_order() {
     ];
     let mut session = PlacementSession::new(&products).unwrap();
 
-    let result = search_placement(&mut session, &products, &fast_config(), 42);
+    let result = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        42,
+    );
     assert_eq!(result.status, Status::Complete, "{result:?}");
     assert_eq!(result.unplaced.len(), 0);
     // Sıra: alan azalan — ilk yerleşim en büyük ürün
@@ -79,7 +85,13 @@ fn total_area_exceeded_is_provable_rejection() {
     let products = [product("a", 4000.0), product("b", 4000.0)]; // 32e6 > 25e6
     let mut session = PlacementSession::new(&products).unwrap();
 
-    let result = search_placement(&mut session, &products, &fast_config(), 42);
+    let result = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        42,
+    );
     assert_eq!(result.status, Status::InvalidInput);
     assert_eq!(result.reason_code, "NECESSARY_AREA_EXCEEDED");
     assert_eq!(result.stats.candidates_tried, 0);
@@ -92,7 +104,13 @@ fn geometrically_impossible_hits_budget_not_claimed_impossible() {
     let products = [product("a", 3500.0), product("b", 3500.0)];
     let mut session = PlacementSession::new(&products).unwrap();
 
-    let result = search_placement(&mut session, &products, &fast_config(), 7);
+    let result = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        7,
+    );
     assert_ne!(result.status, Status::Complete);
     assert_eq!(result.reason_code, "SEARCH_BUDGET_EXHAUSTED");
     // Bütçe saygılı: erken elenen denemeler de sayılır
@@ -110,9 +128,21 @@ fn same_seed_is_deterministic() {
         product("small", 700.0),
     ];
     let mut session = PlacementSession::new(&products).unwrap();
-    let first = search_placement(&mut session, &products, &fast_config(), 99);
+    let first = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        99,
+    );
     let mut session = PlacementSession::new(&products).unwrap();
-    let second = search_placement(&mut session, &products, &fast_config(), 99);
+    let second = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        99,
+    );
     assert_eq!(first.placements, second.placements);
     assert_eq!(first.stats, second.stats);
 }
@@ -124,12 +154,20 @@ fn rotated_only_fit_is_found_by_continuous_angles() {
     let products = [rectangle_product("bar", 5500.0, 500.0)];
     let mut session = PlacementSession::new(&products).unwrap();
 
-    let result = search_placement(&mut session, &products, &fast_config(), 3);
+    let result = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        3,
+    );
     assert_eq!(result.status, Status::Complete, "{result:?}");
     let pose = result.placements[0].pose;
     let deg = pose.rotation_rad.to_degrees();
+    // Dikdörtgen 180°-simetrik; dört eşdeğer pencere de geçerli çözümdür.
+    let windows = [(30.0, 45.0), (135.0, 150.0), (210.0, 225.0), (315.0, 330.0)];
     assert!(
-        (30.0..45.0).contains(&deg) || (210.0..225.0).contains(&deg),
+        windows.iter().any(|&(lo, hi)| deg >= lo && deg <= hi),
         "unexpected angle {deg}"
     );
 }
