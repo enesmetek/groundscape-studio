@@ -1,0 +1,7 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+# ponytail: "stable" burada x86_64-pc-windows-gnu host'a çözümlenir (VS C++ iş yükü yok);
+# MinGW binutils için C:\dev\winlibs14\bin PATH'te olmalı. MSVC'ye geçiş VS C++ kurulunca
+# `rustup set default-host x86_64-pc-windows-msvc` + bu dosyanın düzeltilmesiyle olur.

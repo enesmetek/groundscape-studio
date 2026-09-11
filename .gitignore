@@ -1,0 +1,10 @@
+target/
+frontend/node_modules/
+frontend/dist/
+frontend/src/wasm/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.vite/
+*.rs.bk
+Cargo.lock.bak
