@@ -11,7 +11,9 @@ use crate::area::{AREA_MM2, AREA_SIZE_MM};
 use crate::geometry::{LINEAR_EPSILON_MM, Polygon, transformed_bbox};
 use crate::jagua_adapter::PlacementSession;
 use crate::model::{Placement, PlacementRole, Pose, ProductGeometry};
-use crate::scoring::{LayoutObjective, effective_role};
+use crate::scoring::{
+    LayoutObjective, ScoredItem, effective_role, score_layout, score_layout_delta,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,8 +101,10 @@ pub fn search_placement(
         .map(|p| p.footprint_area_mm2.abs())
         .fold(0.0_f64, f64::max);
     // En derin ilerleyen durum saklanır: kısmi sonuç bundan raporlanır.
+    // Eşit derinlikte düşük toplam skor ikincil anahtardır (MVP-2 plan P4).
     let mut best = BestProgress {
         state: vec![None; n],
+        score: f64::INFINITY,
     };
     let mut budget = Budget::new(config.max_total_candidates);
     let mut last_restart = 0;
@@ -166,12 +170,40 @@ pub fn search_placement(
 }
 
 /// En derin ilerleyen arama durumu ve o duruma götüren restartın sayaçları.
+/// Yerleşen ürün sayısı birincil anahtar (geçerlilik önce gelir); eşit sayıda
+/// düşük toplam skor ikincil anahtar (MVP-2 plan P4).
 struct BestProgress {
     state: Vec<Option<Pose>>,
+    score: f64,
 }
 
 fn placed_count(state: &[Option<Pose>]) -> usize {
     state.iter().filter(|p| p.is_some()).count()
+}
+
+/// Skorlama girişi: yerleşmiş ürünlerin `ScoredItem` listesi (plan P2 —
+/// `placed` mevcut state'ten türetilir, ayrı durum saklanmaz).
+fn placed_scored_items(
+    state: &[Option<Pose>],
+    products: &[ProductGeometry],
+    largest_footprint: f64,
+) -> Vec<ScoredItem> {
+    state
+        .iter()
+        .enumerate()
+        .filter_map(|(item, pose)| {
+            let product = &products[item];
+            pose.map(|pose| {
+                ScoredItem::new(
+                    pose,
+                    product.footprint_centroid_local,
+                    product.footprint_area_mm2,
+                    product.placement_role,
+                    largest_footprint,
+                )
+            })
+        })
+        .collect()
 }
 
 struct Budget {
@@ -250,10 +282,22 @@ fn try_depth(
         rng,
     );
 
-    // Bottom-left benzeri tie-break: küçük x+y önce (plan §11.2).
+    // Skor sıralaması (MVP-2 plan P4): bottom-left tie-break kaldırıldı.
+    // Düşük skor önce; `placed`, state + products'tan bu derinlikte türetilir.
+    let placed = placed_scored_items(state, products, largest_footprint);
+    let candidate_item = |pose: &Pose| {
+        let product = &products[item];
+        ScoredItem::new(
+            *pose,
+            product.footprint_centroid_local,
+            product.footprint_area_mm2,
+            product.placement_role,
+            largest_footprint,
+        )
+    };
     candidates.sort_by(|a, b| {
-        (a.x_mm + a.y_mm)
-            .partial_cmp(&(b.x_mm + b.y_mm))
+        score_layout_delta(candidate_item(a), &placed, objective)
+            .partial_cmp(&score_layout_delta(candidate_item(b), &placed, objective))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -286,10 +330,17 @@ fn try_depth(
             }
             // Alt ürün yerleşemedi: en derin DOĞRULANMIŞ durumu kaydet, pozu geri al.
             let partial = collect_placements(order, state, products);
+            let partial_score = score_layout(
+                &placed_scored_items(state, products, largest_footprint),
+                objective,
+            );
             if crate::validation::validate_result(products, &partial).valid
-                && placed_count(state) > placed_count(&best.state)
+                && (placed_count(state) > placed_count(&best.state)
+                    || (placed_count(state) == placed_count(&best.state)
+                        && partial_score < best.score))
             {
                 best.state.clone_from_slice(state);
+                best.score = partial_score;
             }
             state[item] = previous;
         }

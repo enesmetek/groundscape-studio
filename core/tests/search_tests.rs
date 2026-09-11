@@ -171,3 +171,68 @@ fn rotated_only_fit_is_found_by_continuous_angles() {
         "unexpected angle {deg}"
     );
 }
+
+/// Kabul senaryosu (MVP-2 plan §7, Faz 1): büyük safety'li `peripheral` ürün
+/// merkezi bölgeye alınmaz.
+#[test]
+fn peripheral_product_avoids_center_region() {
+    let mut peripheral = product("peripheral", 1400.0);
+    peripheral.placement_role = PlacementRole::Peripheral;
+    let products = [peripheral, product("big", 1200.0)];
+    let mut session = PlacementSession::new(&products).unwrap();
+
+    let result = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        5,
+    );
+    assert_eq!(result.status, Status::Complete, "{result:?}");
+    let pose = &result
+        .placements
+        .iter()
+        .find(|p| p.product_id == "peripheral")
+        .unwrap()
+        .pose;
+    let half = 0.25 * 5000.0;
+    let outside = (pose.x_mm - 2500.0).abs() > half || (pose.y_mm - 2500.0).abs() > half;
+    assert!(outside, "peripheral pose centered: {pose:?}");
+}
+
+/// Kabul senaryosu (MVP-2 plan §7, Faz 1): bir büyük + altı küçük — büyük
+/// ürünün footprint merkezi merkezi bölgede kalır.
+#[test]
+fn big_product_footprint_center_stays_in_center_region() {
+    let products = [
+        product("big", 1200.0),
+        product("s1", 500.0),
+        product("s2", 500.0),
+        product("s3", 500.0),
+        product("s4", 500.0),
+        product("s5", 500.0),
+        product("s6", 500.0),
+    ];
+    let mut session = PlacementSession::new(&products).unwrap();
+
+    let result = search_placement(
+        &mut session,
+        &products,
+        &fast_config(),
+        &LayoutObjective::default(),
+        21,
+    );
+    assert_eq!(result.status, Status::Complete, "{result:?}");
+    let pose = &result
+        .placements
+        .iter()
+        .find(|p| p.product_id == "big")
+        .unwrap()
+        .pose;
+    let center = groundscape_core::world_footprint_center(*pose, [0.0, 0.0]);
+    let half = 0.25 * 5000.0;
+    assert!(
+        (center[0] - 2500.0).abs() <= half + 1e-6 && (center[1] - 2500.0).abs() <= half + 1e-6,
+        "big product center {center:?} outside region"
+    );
+}
