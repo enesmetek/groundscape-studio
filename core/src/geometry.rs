@@ -54,6 +54,56 @@ pub fn bbox(polygon: &[[f64; 2]]) -> [f64; 4] {
     transformed_bbox(polygon, 0.0, [0.0; 2])
 }
 
+/// Ardışık, `LINEAR_EPSILON_MM`'den yakın tekrar eden noktaları temizler
+/// (plan §9.3: küçük tekrar eden ardışık noktalar kontrollü temizlenebilir).
+#[must_use]
+pub fn dedupe_consecutive(polygon: &[[f64; 2]]) -> Polygon {
+    let mut cleaned: Polygon = Vec::with_capacity(polygon.len());
+    for &p in polygon {
+        match cleaned.last() {
+            Some(&last)
+                if (p[0] - last[0]).abs() <= LINEAR_EPSILON_MM
+                    && (p[1] - last[1]).abs() <= LINEAR_EPSILON_MM => {}
+            _ => cleaned.push(p),
+        }
+    }
+    if cleaned.len() > 1 {
+        let first = cleaned[0];
+        let last = cleaned[cleaned.len() - 1];
+        if (first[0] - last[0]).abs() <= LINEAR_EPSILON_MM
+            && (first[1] - last[1]).abs() <= LINEAR_EPSILON_MM
+        {
+            cleaned.pop();
+        }
+    }
+    cleaned
+}
+
+/// `inner` poligonunun `outer` sınırının dışına çıkıp çıkmadığını poligon
+/// farkıyla denetler (plan §9.3: yalnızca köşe kontrolü değil; konkav kenar
+/// dışarı çıkabilir). Dışarıda kalan alan `AREA_EPSILON_MM2`'den küçükse
+/// içeride sayılır.
+#[must_use]
+pub fn strictly_within(outer: &[[f64; 2]], inner: &[[f64; 2]]) -> bool {
+    use geo::algorithm::Area;
+    use geo::algorithm::bool_ops::BooleanOps;
+    use geo::{LineString, Polygon as GeoPolygon};
+
+    let to_geo = |p: &[[f64; 2]]| {
+        GeoPolygon::new(
+            LineString::from(
+                p.iter()
+                    .map(|&[x, y]| geo::Coord { x, y })
+                    .collect::<Vec<_>>(),
+            ),
+            vec![],
+        )
+    };
+    // inner − outer = sınır dışında kalan parça; boşsa inner içeride.
+    let outside = to_geo(inner).difference(&to_geo(outer));
+    outside.unsigned_area() <= AREA_EPSILON_MM2
+}
+
 /// Bir poligonun tüm noktalarına aynı ofseti uygular (ortak origin için).
 #[must_use]
 pub fn translated(polygon: &[[f64; 2]], offset: [f64; 2]) -> Polygon {
