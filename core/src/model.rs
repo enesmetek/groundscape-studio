@@ -37,7 +37,7 @@ pub struct ProductGeometry {
 }
 
 /// Yerleşim: ürün kimliği + poz.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Placement {
     pub product_id: String,
     pub pose: Pose,
