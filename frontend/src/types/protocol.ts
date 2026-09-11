@@ -5,6 +5,23 @@ export type Pose = { xMm: number; yMm: number; rotationRad: number }
 export type Placement = { productId: string; pose: Pose }
 export type Polygon = [number, number][]
 
+/** Serde camelCase PlacementRole ile birebir (MVP-2 plan P1). */
+export type PlacementRole = 'auto' | 'anchor' | 'distributed' | 'peripheral'
+
+/** Serde camelCase LayoutObjective ile birebir (MVP-2 plan P2). */
+export type LayoutObjective = {
+  weights: {
+    anchor: number
+    balance: number
+    distribution: number
+    spacing: number
+    orientation: number
+  }
+  grid: number
+  anchorRegionRatio: number
+  spacingTargetRatio: number
+}
+
 export type ReadyPayload = {
   areaMm: number
   products: {
@@ -12,6 +29,11 @@ export type ReadyPayload = {
     footprintPolygons: Polygon[]
     safetyZone: Polygon
     safetyAreaMm2: number
+    /** Rust ProductPayload her zaman gönderir; UI rolleri buradan okur. */
+    placementRole: PlacementRole
+    /** Rust ProductPayload gönderir; UI şimdilik okumuyor. */
+    footprintAreaMm2?: number
+    footprintCentroidLocal?: [number, number]
   }[]
 }
 
@@ -72,6 +94,8 @@ export type PlaceMessage = {
   requestId: string
   seed: number
   config: SearchConfig
+  /** Yoksa WASM tarafında LayoutObjective::default() kullanılır. */
+  objective?: LayoutObjective
 }
 export type CancelMessage = { type: 'CANCEL'; schemaVersion: 1; requestId: string }
 

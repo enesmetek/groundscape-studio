@@ -6,6 +6,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::engine::Engine;
 use crate::error::ImportError;
+use crate::model::PlacementRole;
+use crate::scoring::LayoutObjective;
 use crate::search::SearchConfig;
 
 thread_local! {
@@ -46,6 +48,15 @@ pub fn load_products(inputs: JsValue) -> Result<JsValue, JsValue> {
         engine
             .add_product(&input.id, &input.bytes)
             .map_err(|error| import_error(&input.id, &error))?;
+        // Rol/etiket override: import DXF'ten taşımadığı için burada uygulanır.
+        if input.placement_role.is_some() || input.tags.is_some() || input.age_group.is_some() {
+            engine.override_product_metadata(
+                &input.id,
+                input.placement_role.unwrap_or_default(),
+                input.tags.clone().unwrap_or_default(),
+                input.age_group.clone(),
+            );
+        }
     }
 
     let ready = ReadyPayload {
@@ -93,20 +104,37 @@ struct ProductPayload {
 struct LoadProductInput {
     id: String,
     bytes: Vec<u8>,
+    /// DXF rol taşımadığı için opsiyonel; yoksa `auto` (MVP-2 plan P5.5).
+    placement_role: Option<PlacementRole>,
+    tags: Option<Vec<String>>,
+    age_group: Option<String>,
 }
 
-/// start_placement(config, seed) → arama oturumu (plan §13.1).
+/// start_placement(config, seed, objective) → arama oturumu (plan §13.1).
+/// `objective` opsiyonel: undefined/null ise `LayoutObjective::default()`.
 #[wasm_bindgen]
-pub fn start_placement(config: JsValue, seed: u64) -> Result<(), JsValue> {
+pub fn start_placement(config: JsValue, seed: u64, objective: JsValue) -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     let config: SearchConfig =
         serde_wasm_bindgen::from_value(config).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let objective: LayoutObjective = if objective.is_undefined() || objective.is_null() {
+        LayoutObjective::default()
+    } else {
+        serde_wasm_bindgen::from_value(objective).map_err(|e| JsValue::from_str(&e.to_string()))?
+    };
     ENGINE.with(|engine| {
         engine
             .borrow_mut()
             .as_mut()
             .ok_or_else(|| JsValue::from_str("WASM_INIT_FAILED: products not loaded"))?
             .start_placement(config, seed);
+        // ponytail: set_objective yalnızca bu kanaldan beslenir; UI kendi
+        // ağırlık setini gönderene kadar default kullanılır.
+        engine
+            .borrow_mut()
+            .as_mut()
+            .expect("engine checked above")
+            .set_objective(objective);
         Ok(())
     })
 }

@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::dxf_import::import_product;
 use crate::error::ImportError;
 use crate::jagua_adapter::PlacementSession;
-use crate::model::ProductGeometry;
+use crate::model::{PlacementRole, ProductGeometry};
 use crate::scoring::LayoutObjective;
 use crate::search::{PlacementResult, SearchConfig, Status, search_placement};
 
@@ -53,6 +53,22 @@ impl Engine {
     pub fn add_product(&mut self, id: &str, bytes: &[u8]) -> Result<(), ImportError> {
         self.products.push(import_product(id, bytes)?);
         Ok(())
+    }
+
+    /// Import'tan sonra rol/etiket override'ı: DXF bu bilgiyi taşımadığı için
+    /// ayrı kanal gereklidir (MVP-2 plan P5.5). Bilinmeyen kimlik yok sayılır.
+    pub fn override_product_metadata(
+        &mut self,
+        product_id: &str,
+        role: PlacementRole,
+        tags: Vec<String>,
+        age_group: Option<String>,
+    ) {
+        if let Some(product) = self.products.iter_mut().find(|p| p.id == product_id) {
+            product.placement_role = role;
+            product.tags = tags;
+            product.age_group = age_group;
+        }
     }
 
     /// Yüklenen ürünler; arayüz READY durumunda görselleştirir.

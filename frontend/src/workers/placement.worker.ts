@@ -36,7 +36,13 @@ self.onmessage = async ({ data }: MessageEvent<UiMessage>) => {
           await wasmInit({ module_or_path: wasmUrl })
           initialised = true
         }
-        const ready = load_products(message.products.map((p) => ({ id: p.id, bytes: new Uint8Array(p.bytes) })))
+        const ready = load_products(
+          message.products.map((p) => ({
+            id: p.id,
+            bytes: new Uint8Array(p.bytes),
+            placementRole: (p as { placementRole?: string }).placementRole,
+          })),
+        )
         post({ type: 'READY', ready: ready as never }, message.requestId)
       } catch (error) {
         post(
@@ -62,7 +68,7 @@ self.onmessage = async ({ data }: MessageEvent<UiMessage>) => {
       cancelRequested = false
       try {
         reset_placement()
-        start_placement(message.config, BigInt(message.seed))
+        start_placement(message.config, BigInt(message.seed), message.objective ?? undefined)
         for (;;) {
           if (activeRequestId !== requestId) break
           const step = step_placement(256)

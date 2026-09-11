@@ -7,25 +7,28 @@
 
 use groundscape_core::{
     LayoutObjective, PlacementRole, PlacementSession, Polygon, ProductGeometry, ScoredItem,
-    SearchConfig, score_components, score_layout, search_placement,
+    SearchConfig, area_weighted_centroid, score_components, score_layout, search_placement,
 };
 use std::time::Instant;
 
 fn product(id: &str, size: f64, role: PlacementRole) -> ProductGeometry {
     let safety: Polygon = vec![[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
+    // Asimetrik footprint: gerçek merkezi (size/2−25, size/2−12.5) —
+    // centroid'i geometriden hesapla, sabit yazma (MVP-2 plan P5.5).
     let footprint: Polygon = vec![
-        [100.0, 100.0],
-        [size - 100.0, 100.0],
-        [size - 100.0, size - 100.0],
-        [100.0, size - 100.0],
+        [100.0, 50.0],
+        [size - 150.0, 50.0],
+        [size - 150.0, size - 100.0],
+        [100.0, size - 50.0],
     ];
+    let centroid = area_weighted_centroid(std::slice::from_ref(&footprint));
     ProductGeometry {
         id: id.to_owned(),
         footprint_polygons: vec![footprint],
         safety_zone: safety,
         safety_area_mm2: size * size,
-        footprint_area_mm2: (size - 200.0) * (size - 200.0),
-        footprint_centroid_local: [0.0, 0.0],
+        footprint_area_mm2: (size - 250.0) * (size - 125.0),
+        footprint_centroid_local: [centroid[0] - size / 2.0, centroid[1] - size / 2.0],
         placement_role: role,
         tags: Vec::new(),
         age_group: None,

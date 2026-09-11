@@ -15,11 +15,13 @@ test('üç ürün yüklenir, yerleştirilir ve SVG ile çizilir', async ({ page 
   })
   await page.goto('/')
 
-  // loading → ready: üç ürünün durum bilgisi görülür
+  // loading → ready: üç ürünün durum bilgisi görülür (rol etiketi dahil)
   await expect(page.getByRole('button', { name: 'Yerleştir' })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText('Alan: 5000 × 5000 mm')).toBeVisible()
+  await expect(page.getByText('anchor', { exact: true })).toBeVisible()
+  await expect(page.getByText('peripheral', { exact: true })).toBeVisible()
   for (const id of ['product-1', 'product-2', 'product-3']) {
-    await expect(page.getByText(new RegExp(`${id} — safety`))).toBeVisible()
+    await expect(page.getByText(id, { exact: true })).toBeVisible()
   }
 
   await page.getByRole('button', { name: 'Yerleştir' }).click()

@@ -289,6 +289,9 @@ fn try_depth(
 
     // Skor sıralaması (MVP-2 plan P4): bottom-left tie-break kaldırıldı.
     // Düşük skor önce; `placed`, state + products'tan bu derinlikte türetilir.
+    // ponytail: score_layout_delta her aday için baseline'ı yeniden hesaplar;
+    // ürün sayısı büyürse tek baseline hesabına indir (MVP-2 kapsamında 3
+    // ürün için acil değil).
     let placed = placed_scored_items(state, products, second_largest_footprint);
     let candidate_item = |pose: &Pose| {
         let product = &products[item];
@@ -407,23 +410,21 @@ fn generate_candidates(
         let position = match role {
             PlacementRole::Anchor => {
                 // Merkezi bölge çevresinden örnek; geçerli aralığa kırpılır.
+                // Bölge, ürünün sığabildiği aralığın dışındaysa (lo>hi) aralık
+                // taşması sessiz aday israfı üretmesin: geçerli aralığa dön.
                 let half = objective.anchor_region_ratio * AREA_SIZE_MM;
                 let center = AREA_SIZE_MM / 2.0;
+                let clip = |range: (f64, f64)| {
+                    let clipped = ((center - half).max(range.0), (center + half).min(range.1));
+                    if clipped.0 > clipped.1 {
+                        range
+                    } else {
+                        clipped
+                    }
+                };
                 (
-                    sample_range(
-                        (
-                            (center - half).max(x_range.0),
-                            (center + half).min(x_range.1),
-                        ),
-                        rng,
-                    ),
-                    sample_range(
-                        (
-                            (center - half).max(y_range.0),
-                            (center + half).min(y_range.1),
-                        ),
-                        rng,
-                    ),
+                    sample_range(clip(x_range), rng),
+                    sample_range(clip(y_range), rng),
                 )
             }
             PlacementRole::Peripheral => {

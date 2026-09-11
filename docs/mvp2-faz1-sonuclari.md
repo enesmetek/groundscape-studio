@@ -65,6 +65,27 @@ otomatik ölçümle atlanamaz. Görsel onay kullanıcıya aittir; onay gelirse F
 tamamlanmış sayılır. Görsel değerlendirme olumsuz çıkarsa Faz 2 karar bu
 belgenin güncellenmesiyle yeniden alınır.
 
+## 4b. P5.5 — Görünürlük zinciri (tamamlama)
+
+İlk ölçüm turunda rol/objective kanalları yalnızca Rust içindeydi; tarayıcıda
+roller kullanılamıyor ve görsel kapı geçilemiyordu. Tamamlama adımları:
+
+1. `wasm_api.rs::start_placement` üçüncü (opsiyonel) parametre olarak
+   `objective` aldı; undefined/null → `LayoutObjective::default()`.
+   `Engine::set_objective` artık canlı yolda besleniyor.
+2. `LoadProductInput`'a opsiyonel `placementRole`/`tags`/`ageGroup` eklendi;
+   import sonrası `Engine::override_product_metadata` override uygular
+   (DXF bu bilgiyi taşımıyor).
+3. `products.ts` gerçek 3 DXF için rol bildirir: product-1 → `anchor`
+   (en büyük footprint 900²/1500²), product-2 → `distributed`,
+   product-3 → `peripheral`. UI ürün listesi rolü etiketle gösterir;
+   PlacementCanvas anchor ürünün safety zone'unu düz turuncu kenarlıkla
+   işaretler.
+4. Kapı: `npm run build` (gerçek WASM + gerçek 3 DXF) ile Playwright e2e
+   geçer; `frontend/tests/placement.spec.ts` rol etiketlerini de doğrular.
+   Ekran görüntüsü: tarayıcıda `npm run dev` / `npm run preview` ile
+   doğrulama kullanıcıya aittir (aşağıdaki uyarıyla aynı kapı).
+
 ## 5. Uygulamadaki sapmalar (plan metnine göre)
 
 1. **`E_distribution` metriği:** plan "maks−min sapması (örn.)" öneriyor.

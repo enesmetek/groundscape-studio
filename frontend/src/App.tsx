@@ -52,6 +52,10 @@ function App() {
             <li key={product.id}>
               <strong>{product.id}</strong>
               {' '}
+              <span className={`product-role product-role--${product.placementRole}`}>
+                {product.placementRole}
+              </span>
+              {' '}
               <span>— safety {Math.round(product.safetyAreaMm2).toLocaleString('tr-TR')} mm²</span>
             </li>
           ))}

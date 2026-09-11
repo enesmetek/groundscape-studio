@@ -62,6 +62,25 @@
   color: #617066;
 }
 
+.product-role {
+  padding: 0 0.4rem;
+  border: 1px solid #bdc8bd;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.product-role--anchor {
+  color: #a74131;
+  border-color: #d96b43;
+}
+
+.product-role--peripheral {
+  color: #55705e;
+  border-style: dashed;
+}
+
 .actions {
   display: flex;
   gap: 0.75rem;

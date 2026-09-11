@@ -1,23 +1,29 @@
 use groundscape_core::{
     LayoutObjective, PlacementRole, PlacementSession, Polygon, ProductGeometry, SearchConfig,
-    Status, search_placement,
+    Status, area_weighted_centroid, search_placement,
 };
 
 fn product(id: &str, size: f64) -> ProductGeometry {
     let safety: Polygon = vec![[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
+    // Asimetrik footprint: safety içinde kayık — gerçek merkezi (size/2−25,
+    // size/2−12.5). Böylece footprint_centroid_local ≠ (0,0) ve skorlamadaki
+    // dünya merkezi rotasyona duyarlıdır (plan §4.3, P5.5 düzeltmesi).
     let footprint: Polygon = vec![
-        [50.0, 50.0],
-        [size - 50.0, 50.0],
-        [size - 50.0, size - 50.0],
-        [50.0, size - 50.0],
+        [100.0, 50.0],
+        [size - 150.0, 50.0],
+        [size - 150.0, size - 100.0],
+        [100.0, size - 50.0],
     ];
+    // Centroid'i sabit yazma; geometriden hesapla (dxf_import ile aynı yol).
+    // Canonical merkez: safety bbox merkezi (size/2, size/2).
+    let centroid = area_weighted_centroid(std::slice::from_ref(&footprint));
     ProductGeometry {
         id: id.to_owned(),
         footprint_polygons: vec![footprint],
         safety_zone: safety,
         safety_area_mm2: size * size,
-        footprint_area_mm2: (size - 100.0) * (size - 100.0),
-        footprint_centroid_local: [0.0, 0.0],
+        footprint_area_mm2: (size - 250.0) * (size - 125.0),
+        footprint_centroid_local: [centroid[0] - size / 2.0, centroid[1] - size / 2.0],
         placement_role: PlacementRole::Auto,
         tags: Vec::new(),
         age_group: None,
@@ -229,10 +235,12 @@ fn big_product_footprint_center_stays_in_center_region() {
         .find(|p| p.product_id == "big")
         .unwrap()
         .pose;
-    let center = groundscape_core::world_footprint_center(*pose, [0.0, 0.0]);
+    let center = groundscape_core::world_footprint_center(*pose, [-25.0, -12.5]);
     let half = 0.25 * 5000.0;
+    // Asimetrik footprint merkezi pozu en fazla ~28 mm kaydırır — tolerans buna göre.
+    let margin = half + 30.0;
     assert!(
-        (center[0] - 2500.0).abs() <= half + 1e-6 && (center[1] - 2500.0).abs() <= half + 1e-6,
+        (center[0] - 2500.0).abs() <= margin && (center[1] - 2500.0).abs() <= margin,
         "big product center {center:?} outside region"
     );
 }

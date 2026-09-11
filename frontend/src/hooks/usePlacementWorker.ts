@@ -73,7 +73,7 @@ export function usePlacementWorker() {
             const response = await fetch(product.url, { signal: controller.signal })
             if (!response.ok) throw new Error(`${product.id}: HTTP ${response.status}`)
             const buffer = await response.arrayBuffer()
-            return { id: product.id, bytes: buffer }
+            return { id: product.id, bytes: buffer, placementRole: product.role }
           }),
         )
         requestIdRef.current = crypto.randomUUID()
@@ -116,6 +116,8 @@ export function usePlacementWorker() {
         maxRestarts: 3,
         maxTotalCandidates: 200000,
       },
+      // Şimdilik default objective; UI ağırlık seti buradan geçirilebilir.
+      objective: undefined,
     })
   }
 
