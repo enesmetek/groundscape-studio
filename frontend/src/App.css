@@ -1,16 +1,143 @@
-main {
-  width: min(42rem, calc(100% - 2rem));
-  margin: 4rem auto;
+.app {
+  width: min(64rem, calc(100% - 2rem));
+  margin: clamp(1.5rem, 6vw, 4rem) auto;
 }
 
-dl {
+.app--centered {
+  width: min(26rem, calc(100% - 2rem));
+  min-height: 65vh;
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.6rem 1.5rem;
-  padding: 1.5rem;
-  border: 1px solid #cad2c5;
-  border-radius: 0.5rem;
+  place-content: center;
+  justify-items: start;
 }
 
-dt { font-weight: 700; }
-dd { margin: 0; }
+.app__header {
+  border-bottom: 1px solid #bdc8bd;
+  margin-bottom: 1.5rem;
+}
+
+.app h1 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  letter-spacing: -0.04em;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  color: #55705e;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app__summary {
+  margin: 0 0 1.25rem;
+  color: #46554a;
+}
+
+.product-panel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1.5rem;
+}
+
+.product-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.product-list li {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.product-list span {
+  color: #617066;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  align-self: center;
+}
+
+button {
+  min-height: 2.75rem;
+  padding: 0.65rem 1.2rem;
+  border: 1px solid #183c28;
+  border-radius: 0.25rem;
+  color: #fff;
+  background: #205c39;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #17462b;
+}
+
+button:focus-visible {
+  outline: 3px solid #8bcf9f;
+  outline-offset: 3px;
+}
+
+button:disabled {
+  color: #66736a;
+  background: #dbe1dc;
+  border-color: #bdc8bd;
+  cursor: wait;
+}
+
+.button--secondary {
+  color: #183c28;
+  background: transparent;
+}
+
+.button--secondary:hover:not(:disabled) {
+  color: #fff;
+}
+
+.state-message,
+.result-panel > p {
+  padding: 0.75rem 1rem;
+  border-left: 3px solid #4c9f70;
+  background: #edf4ee;
+}
+
+.state-message--error,
+[role='alert'] {
+  border-color: #a74131;
+}
+
+.placement-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border: 1px solid #bdc8bd;
+  background: #f4f7f2;
+}
+
+@media (max-width: 40rem) {
+  .product-panel {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .actions,
+  button {
+    width: 100%;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+}

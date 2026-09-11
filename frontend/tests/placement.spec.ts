@@ -32,6 +32,11 @@ test('üç ürün yüklenir, yerleştirilir ve SVG ile çizilir', async ({ page 
   await expect(canvas).toBeVisible()
   expect(await canvas.locator('g g').count()).toBe(3)
 
+  await page.setViewportSize({ width: 360, height: 740 })
+  const box = await canvas.boundingBox()
+  expect(box?.width).toBeCloseTo(box?.height ?? 0, 0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360)
+
   // Tekrar deneme bozuk durum bırakmaz: düğme yeniden aktif
   await expect(page.getByRole('button', { name: 'Yerleştir' })).toBeEnabled()
   await page.getByRole('button', { name: 'Yerleştir' }).click()

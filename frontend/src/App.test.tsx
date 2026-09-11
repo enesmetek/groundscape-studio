@@ -68,7 +68,7 @@ function resultMessage(requestId: string): WorkerMessage {
       status: 'COMPLETE',
       placements: [
         { productId: 'product-1', pose: { xMm: 0, yMm: 0, rotationRad: 0 } },
-        { productId: 'product-2', pose: { xMm: 1600, yMm: 0, rotationRad: 0 } },
+        { productId: 'product-2', pose: { xMm: 1600, yMm: 0, rotationRad: Math.PI / 4 } },
         { productId: 'product-3', pose: { xMm: 2900, yMm: 0, rotationRad: 0 } },
       ],
       unplaced: [],
@@ -94,9 +94,10 @@ async function bootToReady(onLoading?: () => void) {
 }
 
 describe('App durum makinesi', () => {
-  it('Yerleştir düğmesi yükleme sırasında yoktur; ready sonrası çalışır', async () => {
+  it('Yerleştir düğmesi yükleme sırasında devre dışıdır; ready sonrası çalışır', async () => {
     await bootToReady(() => {
-      expect(screen.queryByRole('button', { name: 'Yerleştir' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Yerleştir' })).toBeDisabled()
+      expect(screen.getByRole('status')).toHaveTextContent('Ürünler yükleniyor...')
     })
   })
 
@@ -110,6 +111,8 @@ describe('App durum makinesi', () => {
     )
     expect(placeCall).toBeTruthy()
     await waitFor(() => expect(screen.getByText(/Yerleştiriliyor/)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Yerleştir' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'İptal' })).toBeEnabled()
 
     const requestId = (placeCall?.[0] as { requestId: string }).requestId
     currentWorker().onmessage?.({ data: resultMessage(requestId) })
@@ -117,8 +120,22 @@ describe('App durum makinesi', () => {
       expect(screen.getByText('Yerleştirme tamamlandı: 3/3 ürün.')).toBeInTheDocument(),
     )
     // SVG tek transform ile çizilir: 3 ürün grubu
-    expect(screen.getByRole('img', { name: 'Yerleşim alanı' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Yerleşim alanı' }).querySelectorAll('g g')).toHaveLength(3)
+    const canvas = screen.getByRole('img', { name: 'Yerleşim alanı' })
+    expect(canvas).toHaveAttribute('viewBox', '0 0 5000 5000')
+    expect(canvas.querySelector(':scope > g')).toHaveAttribute(
+      'transform',
+      'translate(0 5000) scale(1 -1)',
+    )
+    expect(canvas.querySelectorAll('g g')).toHaveLength(3)
+    expect(canvas.querySelector('g g')).toHaveAttribute('transform', 'translate(0 0) rotate(0)')
+    expect(canvas.querySelector('g g polygon')).toHaveAttribute(
+      'points',
+      '0,0 1500,0 1500,1500 0,1500',
+    )
+    expect(canvas.querySelectorAll('g g')[1]).toHaveAttribute(
+      'transform',
+      'translate(1600 0) rotate(45)',
+    )
   })
 
   it('tamamlanan yerleşim yeniden başlatılabilir', async () => {
@@ -193,5 +210,30 @@ describe('App durum makinesi', () => {
       },
     })
     await waitFor(() => expect(screen.getByText('DXF_PARSE_FAILED')).toBeInTheDocument())
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('DXF_PARSE_FAILED')
+    expect(screen.getByText('Ürün dosyalarını kontrol edip sayfayı yenileyin.')).toBeInTheDocument()
+  })
+
+  it('sonuçtaki bilinmeyen ürünü sessizce gizlemez', async () => {
+    const user = userEvent.setup()
+    await bootToReady()
+    await user.click(screen.getByRole('button', { name: 'Yerleştir' }))
+    const placeCall = currentWorker().postMessage.mock.calls.find(
+      ([message]) => (message as { type: string }).type === 'PLACE',
+    )
+    const requestId = (placeCall?.[0] as { requestId: string }).requestId
+    const message = resultMessage(requestId)
+    if (message.type === 'RESULT' && message.result) {
+      message.result.placements.push({
+        productId: 'unknown',
+        pose: { xMm: 0, yMm: 0, rotationRad: 0 },
+      })
+    }
+    currentWorker().onmessage?.({ data: message })
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('Bilinmeyen ürün: unknown'),
+    )
   })
 })
