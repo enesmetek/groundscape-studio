@@ -5,14 +5,15 @@
 //! `SearchConfig`'tedir; toleranslar geometri politikasındadır.
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::area::{AREA_MM2, AREA_SIZE_MM};
 use crate::geometry::{LINEAR_EPSILON_MM, Polygon, transformed_bbox};
 use crate::jagua_adapter::PlacementSession;
 use crate::model::{Placement, Pose, ProductGeometry};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchConfig {
     pub global_samples_per_item: usize,
     pub local_samples_per_item: usize,
@@ -37,6 +38,7 @@ impl Default for SearchConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Status {
     Complete,
     Partial,
@@ -45,12 +47,14 @@ pub enum Status {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchStats {
     pub candidates_tried: usize,
     pub restarts: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlacementResult {
     pub status: Status,
     pub placements: Vec<Placement>,
@@ -91,13 +95,16 @@ pub fn search_placement(
     // En derin ilerleyen durum saklanır: kısmi sonuç bundan raporlanır.
     let mut best = BestProgress {
         state: vec![None; n],
-        candidates_tried: 0,
-        restarts: 0,
     };
+    let mut budget = Budget::new(config.max_total_candidates);
+    let mut last_restart = 0;
 
     for restart in 0..=config.max_restarts {
+        if budget.total >= budget.max {
+            break;
+        }
+        last_restart = restart;
         let mut rng = StdRng::seed_from_u64(seed.wrapping_add(restart as u64));
-        let mut budget = Budget::new(config.max_total_candidates);
         let mut state: Vec<Option<Pose>> = vec![None; n];
         // Temiz başlangıç: hiçbir yerleşim aktif değil.
         session.restart_from(&state);
@@ -113,7 +120,6 @@ pub fn search_placement(
             &mut budget,
             &mut rng,
             &mut best,
-            restart,
         ) {
             return PlacementResult {
                 status: Status::Complete,
@@ -145,8 +151,8 @@ pub fn search_placement(
         unplaced,
         reason_code: "SEARCH_BUDGET_EXHAUSTED",
         stats: SearchStats {
-            candidates_tried: best.candidates_tried,
-            restarts: best.restarts,
+            candidates_tried: budget.total,
+            restarts: last_restart,
         },
     }
 }
@@ -154,8 +160,6 @@ pub fn search_placement(
 /// En derin ilerleyen arama durumu ve o duruma götüren restartın sayaçları.
 struct BestProgress {
     state: Vec<Option<Pose>>,
-    candidates_tried: usize,
-    restarts: usize,
 }
 
 fn placed_count(state: &[Option<Pose>]) -> usize {
@@ -217,7 +221,6 @@ fn try_depth(
     budget: &mut Budget,
     rng: &mut StdRng,
     best: &mut BestProgress,
-    restart: usize,
 ) -> bool {
     if depth == order.len() {
         // Son doğrulama orijinal geometri üzerinde bağımsız yapılır (plan §12);
@@ -239,6 +242,7 @@ fn try_depth(
         if budget.total >= budget.max {
             break;
         }
+        budget.total += 1;
         // Bu ürünün yerleşiminden önceki duruma dön (geri izlama yeniden kurulumu).
         session.restart_from(snapshot_before_depth);
         if session.try_place(item, pose) {
@@ -256,7 +260,6 @@ fn try_depth(
                 budget,
                 rng,
                 best,
-                restart,
             ) {
                 return true;
             }
@@ -266,8 +269,6 @@ fn try_depth(
                 && placed_count(state) > placed_count(&best.state)
             {
                 best.state.clone_from_slice(state);
-                best.candidates_tried = budget.total;
-                best.restarts = restart;
             }
             state[item] = previous;
         }
@@ -329,6 +330,7 @@ fn generate_candidates(
                 budget,
                 rng,
                 &mut candidates,
+                config.candidate_buffer_size,
             );
             candidates.push(pose);
         }
@@ -346,9 +348,13 @@ fn perturb_around(
     budget: &mut Budget,
     rng: &mut StdRng,
     candidates: &mut Vec<Pose>,
+    candidate_buffer_size: usize,
 ) {
     // Ölçek: ürün boyutunun oranı; her denemede küçülür (plan §11.2).
-    while *local_left > 0 && budget.total < budget.max {
+    while *local_left > 0
+        && budget.total < budget.max
+        && candidates.len() + 1 < candidate_buffer_size
+    {
         *local_left -= 1;
         budget.total += 1;
         let shrink = 1.0

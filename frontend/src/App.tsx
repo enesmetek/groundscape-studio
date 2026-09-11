@@ -1,46 +1,88 @@
-import { useEffect, useState } from 'react'
-import { spikePassed, type SpikeResult } from './spikeResult'
+import { usePlacementWorker } from './hooks/usePlacementWorker'
+import PlacementCanvas from './components/PlacementCanvas'
+import { PRODUCTS } from './products'
 import './App.css'
 
-type State =
-  | { status: 'loading' }
-  | { status: 'success'; result: SpikeResult }
-  | { status: 'error'; message: string }
-
+// Durum makinesi — plan §14:
+// loading → ready → placing → complete/partial/error; Yerleştir düğmesi
+// loading ve placing sırasında devre dışıdır.
 function App() {
-  const [state, setState] = useState<State>({ status: 'loading' })
+  const { state, place, cancel } = usePlacementWorker()
 
-  useEffect(() => {
-    const worker = new Worker(new URL('./spike.worker.ts', import.meta.url), {
-      type: 'module',
-    })
-    worker.onmessage = ({ data }: MessageEvent<{ result?: SpikeResult; error?: string }>) => {
-      if (data.result) setState({ status: 'success', result: data.result })
-      else setState({ status: 'error', message: data.error ?? 'Worker failed' })
-    }
-    worker.onerror = ({ message }) => setState({ status: 'error', message })
-    return () => worker.terminate()
-  }, [])
+  if (state.status === 'loading')
+    return (
+      <main>
+        <h1>Ürünler yükleniyor...</h1>
+      </main>
+    )
 
-  if (state.status === 'loading') return <main><h1>Running technical spike...</h1></main>
-  if (state.status === 'error') return <main><h1>Technical spike failed</h1><pre>{state.message}</pre></main>
+  if (state.status === 'error')
+    return (
+      <main>
+        <h1>Hata</h1>
+        <p>
+          <strong>{state.error.code}</strong>
+        </p>
+        <p>{state.error.description}</p>
+      </main>
+    )
 
-  const { result } = state
-  const passed = spikePassed(result)
+  const { ready } = state
+
   return (
     <main>
-      <h1>{passed ? 'Technical spike passed' : 'Technical spike failed'}</h1>
-      <p>{result.engine}</p>
-      <dl>
-        <dt>DXF</dt><dd>{result.dxf.units_mm && result.dxf.closed_lwpolyline ? `${result.dxf.vertex_count} closed vertices in mm` : 'failed'}</dd>
-        <dt>Collision</dt><dd>{result.overlap_detected ? 'containment detected' : 'failed'}</dd>
-        <dt>37 degree pose</dt><dd>{result.continuous_rotation_enabled && result.angle_37_accepted ? 'continuous; 37 degrees accepted' : 'failed'}</dd>
-        <dt>Exact 5000 fit</dt><dd>{result.exact_fit_accepted ? 'accepted at fixed translation' : 'failed'}</dd>
-        <dt>Outside pose</dt><dd>{result.out_of_area_rejected ? 'outside area rejected' : 'failed'}</dd>
-        <dt>Unfit item</dt><dd>{result.unfit_item_rejected ? 'unfit item rejected; no fallback bin' : 'failed'}</dd>
-      </dl>
-      <p>Area size: {result.area_size[0]} x {result.area_size[1]}</p>
-      <p>Bins used: {result.bins_used}</p>
+      <h1>Groundscape — Yerleştirme</h1>
+      <p>
+        Alan: {ready.areaMm} × {ready.areaMm} mm · {PRODUCTS.length} ürün
+      </p>
+      <ul>
+        {ready.products.map((product) => (
+          <li key={product.id}>
+            {product.id} — safety {Math.round(product.safetyAreaMm2).toLocaleString('tr-TR')} mm²
+          </li>
+        ))}
+      </ul>
+
+      {(state.status === 'ready' || state.status === 'complete') && (
+        <button type="button" onClick={() => place(Date.now() % 100000)}>
+          Yerleştir
+        </button>
+      )}
+      {state.status === 'placing' && (
+        <>
+          <button type="button" onClick={cancel}>
+            İptal
+          </button>
+          <p>Yerleştiriliyor... {state.placedCount}/3 ürün · {state.totalCandidates} aday</p>
+        </>
+      )}
+
+      {state.status === 'placing' && <p>Motor çalışıyor...</p>}
+
+      {state.status === 'complete' && (
+        <>
+          {state.result.status === 'COMPLETE' && <p>Yerleştirme tamamlandı: 3/3 ürün.</p>}
+          {state.result.status === 'PARTIAL' && (
+            <p>
+              Kısmi sonuç: {state.result.placements.length}/3 ürün yerleşti; yerleşmeyen:{' '}
+              {state.result.unplaced.join(', ') || '—'} ({state.result.reasonCode}).
+            </p>
+          )}
+          {state.result.status === 'NO_SOLUTION_FOUND' && (
+            <p>Bu denemede yer bulunamadı ({state.result.reasonCode}); yeni denemeyi deneyin.</p>
+          )}
+          {state.result.status === 'INVALID_INPUT' && (
+            <p>
+              Girdi geçersiz: {state.result.reasonCode}. Yerleşmeyen:{' '}
+              {state.result.unplaced.join(', ') || '—'}.
+            </p>
+          )}
+          {state.result.reasonCode === 'FINAL_VALIDATION_FAILED' && (
+            <p>Bulunan sonuç geometri kontrolünden geçmedi.</p>
+          )}
+          <PlacementCanvas ready={ready} result={state.result} />
+        </>
+      )}
     </main>
   )
 }

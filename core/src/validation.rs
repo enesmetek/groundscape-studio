@@ -13,6 +13,7 @@ use crate::geometry::{
 use crate::model::{Placement, ProductGeometry};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ValidationReport {
     pub valid: bool,
     /// Plan §12 ölçüt etiketleri: ZONE_OVERLAP, OUT_OF_AREA,

@@ -1,5 +1,6 @@
 mod area;
 mod dxf_import;
+mod engine;
 mod error;
 mod geometry;
 mod jagua_adapter;
@@ -17,6 +18,7 @@ use serde::Serialize;
 
 pub use area::{AREA_MM2, AREA_SIZE_MM, point_in_area};
 pub use dxf_import::{FOOTPRINT_LAYER, SAFETY_ZONE_LAYER, import_product};
+pub use engine::{Engine, StepReport};
 pub use error::ImportError;
 pub use geometry::{
     AREA_EPSILON_MM2, LINEAR_EPSILON_MM, Polygon, bbox, canonicalize, shoelace_area,

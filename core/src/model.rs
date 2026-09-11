@@ -6,6 +6,7 @@ use crate::geometry::Polygon;
 
 /// Poz sözleşmesi: mm ve radyan. Derece dönüşümü yalnızca SVG metninde yapılır.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Pose {
     pub x_mm: f64,
     pub y_mm: f64,
@@ -38,6 +39,7 @@ pub struct ProductGeometry {
 
 /// Yerleşim: ürün kimliği + poz.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Placement {
     pub product_id: String,
     pub pose: Pose,
