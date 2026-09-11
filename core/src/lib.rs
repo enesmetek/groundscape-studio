@@ -5,6 +5,7 @@ mod error;
 mod geometry;
 mod jagua_adapter;
 mod model;
+mod scoring;
 mod search;
 mod validation;
 
@@ -26,6 +27,10 @@ pub use geometry::{
 };
 pub use jagua_adapter::PlacementSession;
 pub use model::{Placement, PlacementRole, Pose, ProductGeometry};
+pub use scoring::{
+    ComponentWeights, LayoutObjective, ScoredItem, effective_role, score_layout,
+    score_layout_delta, world_footprint_center,
+};
 pub use search::{SearchConfig, SearchStats, Status, search_placement};
 pub use validation::{ValidationReport, validate_result};
 
