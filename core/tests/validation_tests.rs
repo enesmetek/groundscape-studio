@@ -1,5 +1,5 @@
 use groundscape_core::{
-    Placement, Polygon, Pose, ProductGeometry, ValidationReport, validate_result,
+    Placement, PlacementRole, Polygon, Pose, ProductGeometry, ValidationReport, validate_result,
 };
 
 fn product(id: &str, size: f64) -> ProductGeometry {
@@ -15,6 +15,11 @@ fn product(id: &str, size: f64) -> ProductGeometry {
         footprint_polygons: vec![footprint],
         safety_zone: safety,
         safety_area_mm2: size * size,
+        footprint_area_mm2: (size - 100.0) * (size - 100.0),
+        footprint_centroid_local: [0.0, 0.0],
+        placement_role: PlacementRole::Auto,
+        tags: Vec::new(),
+        age_group: None,
         source_metadata: None,
     }
 }

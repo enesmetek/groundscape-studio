@@ -58,6 +58,9 @@ pub fn load_products(inputs: JsValue) -> Result<JsValue, JsValue> {
                 footprint_polygons: product.footprint_polygons.clone(),
                 safety_zone: product.safety_zone.clone(),
                 safety_area_mm2: product.safety_area_mm2,
+                footprint_area_mm2: product.footprint_area_mm2,
+                footprint_centroid_local: product.footprint_centroid_local,
+                placement_role: product.placement_role,
             })
             .collect(),
     };
@@ -80,6 +83,9 @@ struct ProductPayload {
     footprint_polygons: Vec<crate::geometry::Polygon>,
     safety_zone: crate::geometry::Polygon,
     safety_area_mm2: f64,
+    footprint_area_mm2: f64,
+    footprint_centroid_local: [f64; 2],
+    placement_role: crate::model::PlacementRole,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,5 +1,6 @@
 use groundscape_core::{
-    PlacementSession, Polygon, ProductGeometry, SearchConfig, Status, search_placement,
+    PlacementRole, PlacementSession, Polygon, ProductGeometry, SearchConfig, Status,
+    search_placement,
 };
 
 fn product(id: &str, size: f64) -> ProductGeometry {
@@ -15,6 +16,11 @@ fn product(id: &str, size: f64) -> ProductGeometry {
         footprint_polygons: vec![footprint],
         safety_zone: safety,
         safety_area_mm2: size * size,
+        footprint_area_mm2: (size - 100.0) * (size - 100.0),
+        footprint_centroid_local: [0.0, 0.0],
+        placement_role: PlacementRole::Auto,
+        tags: Vec::new(),
+        age_group: None,
         source_metadata: None,
     }
 }
@@ -40,6 +46,11 @@ fn rectangle_product(id: &str, width: f64, height: f64) -> ProductGeometry {
         ]],
         safety_zone: vec![[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]],
         safety_area_mm2: width * height,
+        footprint_area_mm2: (width - 20.0) * (height - 20.0),
+        footprint_centroid_local: [0.0, 0.0],
+        placement_role: PlacementRole::Auto,
+        tags: Vec::new(),
+        age_group: None,
         source_metadata: None,
     }
 }

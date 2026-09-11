@@ -25,6 +25,38 @@ pub fn shoelace_area(polygon: &[[f64; 2]]) -> f64 {
     twice_signed.abs() / 2.0
 }
 
+/// Footprint parçalarının alan ağırlıklı merkez noktası (MVP-2 plan P1).
+/// Parça merkezi imzalı shoelace formülüyle hesaplanır; ağırlık mutlak alan.
+#[must_use]
+pub fn area_weighted_centroid(parts: &[Polygon]) -> [f64; 2] {
+    let mut total = 0.0;
+    let mut weighted = [0.0, 0.0];
+    for part in parts {
+        let (mut twice_signed, mut cx, mut cy) = (0.0, 0.0, 0.0);
+        for i in 0..part.len() {
+            let [x1, y1] = part[i];
+            let [x2, y2] = part[(i + 1) % part.len()];
+            let cross = x1 * y2 - x2 * y1;
+            twice_signed += cross;
+            cx += (x1 + x2) * cross;
+            cy += (y1 + y2) * cross;
+        }
+        let area = twice_signed.abs() / 2.0;
+        if area <= AREA_EPSILON_MM2 {
+            continue;
+        }
+        let centroid = [cx / (3.0 * twice_signed), cy / (3.0 * twice_signed)];
+        total += area;
+        weighted[0] += area * centroid[0];
+        weighted[1] += area * centroid[1];
+    }
+    if total > AREA_EPSILON_MM2 {
+        [weighted[0] / total, weighted[1] / total]
+    } else {
+        [0.0, 0.0]
+    }
+}
+
 /// Döndürülmüş + ötelenmiş poligonun sıkı sınır kutusu.
 #[must_use]
 pub fn transformed_bbox(polygon: &[[f64; 2]], angle_rad: f64, translation: [f64; 2]) -> [f64; 4] {

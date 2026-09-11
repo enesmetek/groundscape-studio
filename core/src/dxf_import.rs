@@ -9,9 +9,10 @@ use dxf::enums::Units;
 
 use crate::error::ImportError;
 use crate::geometry::{
-    AREA_EPSILON_MM2, canonicalize, dedupe_consecutive, shoelace_area, strictly_within,
+    AREA_EPSILON_MM2, area_weighted_centroid, canonicalize, dedupe_consecutive, shoelace_area,
+    strictly_within,
 };
-use crate::model::ProductGeometry;
+use crate::model::{PlacementRole, ProductGeometry};
 
 pub const FOOTPRINT_LAYER: &str = "FOOTPRINT";
 pub const SAFETY_ZONE_LAYER: &str = "SAFETY_ZONE";
@@ -64,11 +65,19 @@ pub fn import_product(id: &str, bytes: &[u8]) -> Result<ProductGeometry, ImportE
         }
     }
 
+    let footprint_area_mm2: f64 = canonical_footprints.iter().map(|p| shoelace_area(p)).sum();
+    let footprint_centroid_local = area_weighted_centroid(&canonical_footprints);
+
     Ok(ProductGeometry {
         id: id.to_owned(),
         footprint_polygons: canonical_footprints,
         safety_area_mm2: shoelace_area(&canonical_safety),
+        footprint_area_mm2,
+        footprint_centroid_local,
         safety_zone: canonical_safety,
+        placement_role: PlacementRole::default(),
+        tags: Vec::new(),
+        age_group: None,
         source_metadata: Some(format!("offset=({:.3},{:.3})", offset[0], offset[1])),
     })
 }

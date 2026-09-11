@@ -178,3 +178,48 @@ fn source_metadata_records_offset() {
     );
     let _ = std::mem::size_of::<ProductGeometry>();
 }
+
+#[test]
+fn import_computes_footprint_area_and_centroid() {
+    // Asimetrik tampon: footprint 100x100, safety içinde sola/alta 50,
+    // sağa/yukarıya 150 boşluk — canonical merkez ≠ (0,0) (plan P1 kapısı).
+    let offcenter_fp = lwpolyline(
+        FOOTPRINT_LAYER,
+        &[("50", "50"), ("150", "50"), ("150", "150"), ("50", "150")],
+        true,
+    );
+    let dxf = dxf_bytes(&format!("{}{}", offcenter_fp, square_sz("300")), 4);
+
+    let product = import_product("p1", &dxf).unwrap();
+    assert_eq!(product.footprint_area_mm2, 10_000.0);
+    assert_eq!(product.footprint_centroid_local, [-50.0, -50.0]);
+    assert_eq!(
+        product.placement_role,
+        groundscape_core::PlacementRole::Auto
+    );
+    assert!(product.tags.is_empty());
+    assert_eq!(product.age_group, None);
+}
+
+#[test]
+fn multipart_footprint_centroid_is_area_weighted() {
+    // Parça 1: 100x100 (alan 10k) merkez (50,50); parça 2: 200x100 (alan 20k)
+    // merkez (300,50) → ağırlıklı merkez x = (10k·50 + 20k·300)/30k = 650/3.
+    let part1 = lwpolyline(
+        FOOTPRINT_LAYER,
+        &[("0", "0"), ("100", "0"), ("100", "100"), ("0", "100")],
+        true,
+    );
+    let part2 = lwpolyline(
+        FOOTPRINT_LAYER,
+        &[("200", "0"), ("400", "0"), ("400", "100"), ("200", "100")],
+        true,
+    );
+    let dxf = dxf_bytes(&format!("{}{}{}", part1, part2, square_sz("500")), 4);
+
+    let product = import_product("p1", &dxf).unwrap();
+    assert_eq!(product.footprint_area_mm2, 30_000.0);
+    let [cx, cy] = product.footprint_centroid_local;
+    assert!((cx - (650.0 / 3.0 - 250.0)).abs() < 1e-6, "cx={cx}");
+    assert!((cy - (-200.0)).abs() < 1e-6, "cy={cy}");
+}

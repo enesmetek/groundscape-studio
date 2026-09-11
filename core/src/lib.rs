@@ -21,11 +21,11 @@ pub use dxf_import::{FOOTPRINT_LAYER, SAFETY_ZONE_LAYER, import_product};
 pub use engine::{Engine, StepReport};
 pub use error::ImportError;
 pub use geometry::{
-    AREA_EPSILON_MM2, LINEAR_EPSILON_MM, Polygon, bbox, canonicalize, shoelace_area,
-    transformed_bbox, translated,
+    AREA_EPSILON_MM2, LINEAR_EPSILON_MM, Polygon, area_weighted_centroid, bbox, canonicalize,
+    shoelace_area, transformed_bbox, translated,
 };
 pub use jagua_adapter::PlacementSession;
-pub use model::{Placement, Pose, ProductGeometry};
+pub use model::{Placement, PlacementRole, Pose, ProductGeometry};
 pub use search::{SearchConfig, SearchStats, Status, search_placement};
 pub use validation::{ValidationReport, validate_result};
 

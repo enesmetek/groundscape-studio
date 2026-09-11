@@ -1,4 +1,4 @@
-use groundscape_core::{PlacementSession, Polygon, Pose, ProductGeometry};
+use groundscape_core::{PlacementRole, PlacementSession, Polygon, Pose, ProductGeometry};
 
 fn product(id: &str, size: f64) -> ProductGeometry {
     let safety: Polygon = vec![[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
@@ -13,6 +13,11 @@ fn product(id: &str, size: f64) -> ProductGeometry {
         footprint_polygons: vec![footprint],
         safety_zone: safety,
         safety_area_mm2: size * size,
+        footprint_area_mm2: (size - 200.0) * (size - 200.0),
+        footprint_centroid_local: [0.0, 0.0],
+        placement_role: PlacementRole::Auto,
+        tags: Vec::new(),
+        age_group: None,
         source_metadata: None,
     }
 }
